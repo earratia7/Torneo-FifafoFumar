@@ -118,8 +118,8 @@ with tab_registro:
             
             with col_destino:
                 if not jugado.empty:
-                    gl = jugado.iloc[0]['Goles_L']
-                    gv = jugado.iloc[0]['Goles_V']
+                    gl = int(jugado.iloc[0]['Goles_L'])
+                    gv = int(jugado.iloc[0]['Goles_V'])
                     st.success(f"✅ {texto_partido} | **Marcador: {gl} - {gv}**")
                 else:
                     st.info(f"⏳ {texto_partido} | Pendiente")
