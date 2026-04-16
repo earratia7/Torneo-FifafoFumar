@@ -3,13 +3,12 @@ import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 import google.generativeai as genai
 from PIL import Image
-import io
+import json  # <-- NUEVA HERRAMIENTA PARA LEER DATOS DE MÁQUINA
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
 # --- CONFIGURACIÓN DE IA ---
 try:
-    # Intenta leer la llave secreta
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     modelo_ia = genai.GenerativeModel('gemini-2.5-flash')
     ia_lista = True
@@ -25,7 +24,7 @@ try:
     df_equipos = conn.read(worksheet="Equipos", usecols=[0, 1], ttl=5).dropna(how="all")
     df_transferencias = conn.read(worksheet="Transferencias", usecols=[0, 1, 2, 3, 4], ttl=5).dropna(how="all")
 except Exception as e:
-    st.error(f"⚠️ Atención: Verifica tu conexión a Google Sheets o las pestañas.")
+    st.error(f"⚠️ Atención: Verifica tu conexión a Google Sheets.")
     df_partidos = pd.DataFrame(columns=["Torneo", "Jornada", "Local", "Goles_L", "Goles_V", "Visitante", "WO"])
     df_goleadores = pd.DataFrame(columns=["Torneo", "Jornada", "Equipo", "Jugador", "Goles"])
     df_equipos = pd.DataFrame(columns=["Torneo", "Equipo"])
@@ -103,34 +102,51 @@ with tab_registro:
             datos_partido = opciones_partidos[partido_seleccionado]
             local, visita, jornada_act = datos_partido['Local'], datos_partido['Visitante'], datos_partido['Jornada']
             
-            # --- ZONA DE IA: VISIÓN POR COMPUTADORA ---
-            with st.expander("📸 Usar IA para leer foto del marcador (Opcional)", expanded=False):
+            # --- ZONA DE IA: VISIÓN Y AUTOCOMPLETADO ---
+            with st.expander("📸 Autocompletar con IA (Opcional)", expanded=False):
                 if not ia_lista:
-                    st.warning("⚠️ La IA no está configurada o falta la API Key en los secretos.")
+                    st.warning("⚠️ La IA no está configurada.")
                 else:
-                    st.write("Sube una foto de tu TV con las estadísticas o el marcador final.")
-                    # Permite subir imágenes o usar la cámara del celular
-                    fotos_subidas = st.file_uploader("Sube imágenes", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
-                    if st.button("🤖 Analizar Fotos con IA"):
+                    fotos_subidas = st.file_uploader("Sube imágenes del marcador", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+                    if st.button("🤖 Analizar y Autocompletar"):
                         if fotos_subidas:
-                            with st.spinner("La IA está analizando las imágenes..."):
+                            with st.spinner("La IA está leyendo y llenando los datos..."):
                                 try:
                                     prompt_ia = """
-                                    Eres un árbitro experto de EA FC. Analiza esta(s) imagen(es) de la pantalla final del partido.
-                                    Por favor extrae de forma clara:
-                                    1. Los Goles del Equipo Local.
-                                    2. Los Goles del Equipo Visitante.
-                                    3. Una lista de los jugadores que anotaron gol por cada equipo (si aparece en la imagen).
-                                    Sé directo y conciso.
+                                    Eres un sistema automático. Analiza las imágenes del marcador del partido.
+                                    Devuelve ÚNICAMENTE un objeto JSON válido. No uses formato markdown, ni texto adicional.
+                                    Estructura exacta:
+                                    {
+                                      "goles_local": (número entero),
+                                      "goles_visitante": (número entero),
+                                      "goleadores_local": ["Nombre Jugador 1", "Nombre Jugador 2"],
+                                      "goleadores_visitante": ["Nombre Jugador 1"]
+                                    }
+                                    Asegúrate de que la cantidad de nombres coincida con el número de goles. Si un jugador metió 2, repite su nombre. Si hay 0 goles, la lista debe estar vacía []. Solo pon el apellido o nombre principal (sin el minuto).
                                     """
                                     imagenes_pil = [Image.open(f) for f in fotos_subidas]
                                     respuesta = modelo_ia.generate_content([prompt_ia] + imagenes_pil)
-                                    st.success("**¡Análisis completado!** Copia los datos en el formulario de abajo.")
-                                    st.info(respuesta.text)
+                                    
+                                    # Limpiamos el texto por si la IA es rebelde y le pone comillas raras
+                                    texto_json = respuesta.text.replace("```json", "").replace("```", "").strip()
+                                    datos_ia = json.loads(texto_json)
+                                    
+                                    # MAGIA: Inyectar en la memoria de la app
+                                    st.session_state["gl_in"] = datos_ia.get("goles_local", 0)
+                                    st.session_state["gv_in"] = datos_ia.get("goles_visitante", 0)
+                                    
+                                    for i, jug in enumerate(datos_ia.get("goleadores_local", [])):
+                                        st.session_state[f"g_l_{i}"] = jug
+                                    for i, jug in enumerate(datos_ia.get("goleadores_visitante", [])):
+                                        st.session_state[f"g_v_{i}"] = jug
+                                        
+                                    st.success("✅ ¡Datos extraídos! Los formularios de abajo se han actualizado.")
+                                    # Forzamos una recarga rápida para que los cuadros de texto absorban la memoria
+                                    st.rerun() 
                                 except Exception as e:
-                                    st.error(f"Hubo un error al analizar la imagen: {e}")
+                                    st.error(f"Hubo un error interpretando la imagen: {e}")
                         else:
-                            st.warning("Por favor sube al menos una foto primero.")
+                            st.warning("Por favor sube una foto primero.")
             # ------------------------------------------
 
             col_r1, col_r2 = st.columns(2)
@@ -178,6 +194,9 @@ with tab_registro:
                 conn.update(worksheet="Partidos", data=pd.concat([df_partidos, pd.DataFrame([{"Torneo": torneo_actual, "Jornada": jornada_act, "Local": local, "Goles_L": goles_l, "Goles_V": goles_v, "Visitante": visita, "WO": wo}])], ignore_index=True))
                 if goleadores_data: conn.update(worksheet="Goleadores", data=pd.concat([df_goleadores, pd.DataFrame(goleadores_data)], ignore_index=True))
                 if transferencia_data: conn.update(worksheet="Transferencias", data=pd.concat([df_transferencias, pd.DataFrame([transferencia_data])], ignore_index=True))
+                
+                # Limpiar memoria después de guardar
+                for key in st.session_state.keys(): del st.session_state[key]
                 st.success("✅ ¡Partido y datos guardados exitosamente!"); st.rerun()
 
 # --- PESTAÑA 2: TABLA DE POSICIONES ---
