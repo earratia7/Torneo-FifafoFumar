@@ -8,24 +8,37 @@ import time
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
-# --- ESTILOS CSS ---
+# --- ESTILOS CSS REPARADOS PARA LOS BOTONES ---
 st.markdown("""
     <style>
+    /* Estilo para los BOTONES de partidos PENDIENTES */
     div.stButton > button {
-        width: 100%;
+        width: 100% !important;
         background-color: #1E1E1E !important;
         color: white !important;
         border: 1px solid #333 !important;
+        border-left: 6px solid #FFA500 !important; /* Borde naranja idéntico a la tarjeta verde */
         border-radius: 12px !important;
         padding: 15px !important;
         margin-bottom: 10px !important;
         display: block !important;
         transition: all 0.2s ease;
+        box-shadow: 3px 3px 10px rgba(0,0,0,0.5) !important;
     }
     div.stButton > button:hover {
-        border-color: #FFA500 !important;
+        border-color: #FFB732 !important;
         transform: scale(1.02);
     }
+    /* El truco maestro para apilar y centrar el texto dentro del botón */
+    div.stButton > button p {
+        text-align: center !important;
+        width: 100% !important;
+        white-space: pre-line !important; /* Obliga a respetar los saltos de línea */
+        font-size: 16px !important;
+        line-height: 1.6 !important;
+    }
+    
+    /* Estilo para las TARJETAS de partidos JUGADOS */
     .match-card-played {
         background-color: #1E1E1E;
         border: 1px solid #333;
@@ -37,15 +50,16 @@ st.markdown("""
         box-shadow: 3px 3px 10px rgba(0,0,0,0.5);
     }
     .jornada-tag { font-size: 14px; color: #AAA; font-weight: bold; margin-bottom: 5px; }
-    .teams-text { font-size: 16px; font-weight: 600; margin-bottom: 5px; }
-    .status-text { font-size: 18px; color: #FFA500; font-style: italic; font-weight: bold; }
+    .teams-text { font-size: 16px; font-weight: 600; margin-bottom: 5px; color: white;}
     .score-text { font-size: 24px; font-weight: 900; color: #00FF00; letter-spacing: 2px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- MEMORIA DE SELECCIÓN ---
+# --- MEMORIA DE SELECCIÓN Y SCROLL ---
 if "partido_seleccionado_click" not in st.session_state:
     st.session_state["partido_seleccionado_click"] = None
+if "scroll_trigger" not in st.session_state:
+    st.session_state["scroll_trigger"] = False
 if "fk" not in st.session_state:
     st.session_state["fk"] = 0
 
@@ -117,24 +131,35 @@ with tab_registro:
                     st.markdown(f"""<div class="match-card-played"><div class="jornada-tag">✅ {p['Jornada']}</div><div class="teams-text">{p['Local']} vs {p['Visitante']}</div><div class="score-text">{gl} - {gv}</div></div>""", unsafe_allow_html=True)
                 else:
                     pendientes.append(p)
+                    # El texto con saltos de línea explícitos para que el CSS lo apile
                     label = f"⏳ {p['Jornada']}\n{p['Local']} vs {p['Visitante']}\nPendiente"
-                    # CORRECCIÓN AQUÍ: Key única combinando jornada + equipos
                     key_unica = f"btn_{p['Jornada']}_{p['Local'].split()[0]}_{idx}"
                     if st.button(label, key=key_unica):
                         st.session_state["partido_seleccionado_click"] = f"{p['Jornada']}: {p['Local']} vs {p['Visitante']}"
+                        st.session_state["scroll_trigger"] = True # Activamos la orden de bajar
                         st.rerun()
                     
         st.divider()
         st.markdown("<div id='registro_ancla'></div>", unsafe_allow_html=True)
         st.subheader("📝 Registrar Resultado")
         
+        # --- LÓGICA DE SCROLL INFALIBLE ---
+        if st.session_state["scroll_trigger"]:
+            # Usamos time.time() para que el bloque HTML sea único y siempre se ejecute
+            js_script = f"""
+            <script>
+                // Marca de tiempo: {time.time()}
+                window.parent.document.getElementById('registro_ancla').scrollIntoView({{behavior: 'smooth'}});
+            </script>
+            """
+            st.components.v1.html(js_script, height=0)
+            st.session_state["scroll_trigger"] = False # Apagamos el trigger para que no se atore
+        
         if st.session_state["partido_seleccionado_click"]:
              st.info(f"📍 Registrando: {st.session_state['partido_seleccionado_click']}")
-             st.components.v1.html(f"""<script>window.parent.document.getElementById('registro_ancla').scrollIntoView({{behavior: 'smooth'}});</script>""", height=0)
 
         if pendientes:
             opciones = [f"{p['Jornada']}: {p['Local']} vs {p['Visitante']}" for p in pendientes]
-            # Evitamos error si el partido clicado ya no está en pendientes
             idx_def = opciones.index(st.session_state["partido_seleccionado_click"]) if st.session_state["partido_seleccionado_click"] in opciones else 0
             partido_sel = st.selectbox("Selecciona partido:", opciones, index=idx_def)
             
@@ -156,7 +181,6 @@ with tab_registro:
                             except: st.error("Error IA")
 
             col1, col2 = st.columns(2)
-            # Aplicamos llaves únicas a los inputs de goles también
             with col1: gl = st.number_input(f"Goles {loc}", min_value=0, key=f"gl_{st.session_state['fk']}")
             with col2: gv = st.number_input(f"Goles {vis}", min_value=0, key=f"gv_{st.session_state['fk']}")
 
@@ -167,6 +191,7 @@ with tab_registro:
                 st.cache_data.clear()
                 st.success("✅ ¡Guardado!"); time.sleep(1); st.rerun()
 
+# --- LAS OTRAS PESTAÑAS (IGUAL) ---
 with tab_tabla:
     partidos_torneo = df_partidos[df_partidos['Torneo'] == torneo_actual]
     if not partidos_torneo.empty:
@@ -181,3 +206,12 @@ with tab_tabla:
         df_t = pd.DataFrame.from_dict(stats, orient='index')
         df_t['DG'] = df_t['GF'] - df_t['GC']
         st.dataframe(df_t[['PJ', 'G', 'E', 'P', 'GF', 'GC', 'DG', 'Pts']].sort_values(by=['Pts', 'DG'], ascending=False), use_container_width=True)
+
+with tab_goleo:
+    goles_t = df_goleadores[df_goleadores['Torneo'] == torneo_actual]
+    if not goles_t.empty:
+        st.dataframe(goles_t.groupby(['Jugador', 'Equipo'])['Goles'].sum().reset_index().sort_values(by='Goles', ascending=False), use_container_width=True)
+
+with tab_transf:
+    t_t = df_transferencias[df_transferencias['Torneo'] == torneo_actual]
+    if not t_t.empty: st.dataframe(t_t[["Jornada", "Equipo", "Toma", "Cede"]], use_container_width=True)
