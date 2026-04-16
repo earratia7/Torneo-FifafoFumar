@@ -8,39 +8,43 @@ import time
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
-# --- ESTILOS CSS PERSONALIZADOS ---
+# --- ESTILOS CSS ACTUALIZADOS ---
 st.markdown("""
     <style>
     .match-card {
         background-color: #1E1E1E;
         border: 1px solid #333;
-        border-radius: 10px;
-        padding: 15px;
-        margin-bottom: 10px;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 12px;
         text-align: center;
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+        box-shadow: 3px 3px 10px rgba(0,0,0,0.5);
     }
     .match-teams {
-        font-size: 14px;
-        font-weight: bold;
+        font-size: 16px;
+        font-weight: 600;
         color: #FFFFFF;
-        margin-bottom: 5px;
+        margin-bottom: 8px;
+        margin-top: 5px;
     }
     .match-status-pending {
-        font-size: 16px;
+        font-size: 18px;
         color: #FFA500;
         font-style: italic;
+        font-weight: bold;
     }
     .match-status-played {
-        font-size: 20px;
-        font-weight: 800;
+        font-size: 24px;
+        font-weight: 900;
         color: #00FF00;
-        letter-spacing: 2px;
+        letter-spacing: 3px;
     }
     .jornada-tag {
-        font-size: 10px;
-        color: #888;
+        font-size: 14px; /* <--- MÁS GRANDE */
+        color: #AAA;
+        font-weight: bold;
         text-transform: uppercase;
+        letter-spacing: 1px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -117,7 +121,7 @@ st.title(f"🏆 Torneo FifafoFumar FC26 - {torneo_actual}")
 
 tab_registro, tab_tabla, tab_goleo, tab_transf, tab_config = st.tabs(["📝 Calendario y Registro", "📊 Posiciones", "⚽ Goleo", "🔄 Transferencias", "⚙️ Configuración"])
 
-# --- PESTAÑA 5: CONFIGURACIÓN ---
+# --- PESTAÑA CONFIGURACIÓN ---
 with tab_config:
     st.subheader("Alta de Torneos y Jugadores")
     col_t, col_e = st.columns(2)
@@ -129,7 +133,7 @@ with tab_config:
             st.cache_data.clear()
             st.success("✅ Registrado."); st.rerun()
 
-# --- PESTAÑA 1: CALENDARIO Y REGISTRO ---
+# --- PESTAÑA CALENDARIO ---
 with tab_registro:
     if len(equipos_activos) != 6:
         st.error("⚠️ Inscribe 6 equipos.")
@@ -142,22 +146,24 @@ with tab_registro:
         for idx, p in enumerate(partidos_semana):
             jugado = df_partidos[(df_partidos['Torneo'] == torneo_actual) & (df_partidos['Jornada'] == p['Jornada']) & (df_partidos['Local'] == p['Local'])]
             
-            # --- CONSTRUCCIÓN DE LA TARJETA ---
+            # --- CONSTRUCCIÓN DE LA TARJETA MEJORADA ---
             if not jugado.empty:
                 gl, gv = int(jugado.iloc[0]['Goles_L']), int(jugado.iloc[0]['Goles_V'])
+                # Emoji cambia a ✅ y quitamos el balón
                 html_card = f"""
-                <div class="match-card" style="border-left: 5px solid #00FF00;">
-                    <div class="jornada-tag">⏳ {p['Jornada']}</div>
-                    <div class="match-teams">⚽ {p['Local']} vs {p['Visitante']}</div>
+                <div class="match-card" style="border-left: 6px solid #00FF00;">
+                    <div class="jornada-tag">✅ {p['Jornada']}</div>
+                    <div class="match-teams">{p['Local']} vs {p['Visitante']}</div>
                     <div class="match-status-played">{gl} - {gv}</div>
                 </div>
                 """
             else:
                 pendientes_para_dropdown.append(p)
+                # Emoji se mantiene en ⏳ y quitamos el balón
                 html_card = f"""
-                <div class="match-card" style="border-left: 5px solid #FFA500;">
+                <div class="match-card" style="border-left: 6px solid #FFA500;">
                     <div class="jornada-tag">⏳ {p['Jornada']}</div>
-                    <div class="match-teams">⚽ {p['Local']} vs {p['Visitante']}</div>
+                    <div class="match-teams">{p['Local']} vs {p['Visitante']}</div>
                     <div class="match-status-pending">Pendiente</div>
                 </div>
                 """
@@ -202,7 +208,7 @@ with tab_registro:
                 st.cache_data.clear()
                 st.success("✅ Guardado!"); time.sleep(1); st.rerun()
 
-# --- TABLAS DE POSICIONES Y GOLEO (Sin cambios) ---
+# --- TABLAS (Lógica estándar) ---
 with tab_tabla:
     partidos_torneo = df_partidos[df_partidos['Torneo'] == torneo_actual]
     if not partidos_torneo.empty:
