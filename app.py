@@ -8,6 +8,12 @@ import time
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
+# --- SISTEMA DE RESETEO INFALIBLE ---
+# Creamos un número que cambiará cada vez que guardemos, forzando a la app a limpiar todo
+if "fk" not in st.session_state:
+    st.session_state["fk"] = 0
+fk = st.session_state["fk"]
+
 # --- CONFIGURACIÓN DE IA ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -52,7 +58,7 @@ with st.sidebar:
     lista_torneos = df_equipos['Torneo'].unique().tolist() if not df_equipos.empty else ["Sin Torneos"]
     torneo_actual = st.selectbox("Torneo Activo:", lista_torneos)
     
-    # MAGIA 1: Le agregamos key="memoria_semana" para que nunca olvide en qué semana estás
+    # Memoria de la semana de juego
     semana_actual = st.number_input("Semana de Juego:", min_value=1, max_value=20, value=1, key="memoria_semana")
     
     st.divider()
@@ -115,8 +121,8 @@ with tab_registro:
                 if not ia_lista:
                     st.warning("⚠️ La IA no está configurada.")
                 else:
-                    # MAGIA 2: Agregamos key="fotos_uploader" para poder borrarlo después
-                    fotos_subidas = st.file_uploader("Sube imágenes del marcador", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="fotos_uploader")
+                    # Aplicamos la llave dinámica a la foto
+                    fotos_subidas = st.file_uploader("Sube imágenes del marcador", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key=f"foto_{fk}")
                     if st.button("🤖 Analizar y Autocompletar"):
                         if fotos_subidas:
                             with st.spinner("La IA está leyendo y llenando los datos..."):
@@ -130,10 +136,11 @@ with tab_registro:
                                     texto_json = respuesta.text.replace("```json", "").replace("```", "").strip()
                                     datos_ia = json.loads(texto_json)
                                     
-                                    st.session_state["gl_in"] = datos_ia.get("goles_local", 0)
-                                    st.session_state["gv_in"] = datos_ia.get("goles_visitante", 0)
-                                    for i, jug in enumerate(datos_ia.get("goleadores_local", [])): st.session_state[f"g_l_{i}"] = jug
-                                    for i, jug in enumerate(datos_ia.get("goleadores_visitante", [])): st.session_state[f"g_v_{i}"] = jug
+                                    # Inyectamos los datos en las llaves dinámicas
+                                    st.session_state[f"gl_{fk}"] = datos_ia.get("goles_local", 0)
+                                    st.session_state[f"gv_{fk}"] = datos_ia.get("goles_visitante", 0)
+                                    for i, jug in enumerate(datos_ia.get("goleadores_local", [])): st.session_state[f"jug_l_{i}_{fk}"] = jug
+                                    for i, jug in enumerate(datos_ia.get("goleadores_visitante", [])): st.session_state[f"jug_v_{i}_{fk}"] = jug
                                         
                                     st.success("✅ ¡Datos extraídos!"); st.rerun() 
                                 except Exception as e:
@@ -144,14 +151,15 @@ with tab_registro:
             col_r1, col_r2 = st.columns(2)
             with col_r1:
                 st.write(f"**Local:** {local}")
-                goles_l = st.number_input("Goles Local", min_value=0, max_value=20, value=0, key="gl_in")
+                # Llave dinámica en los inputs
+                goles_l = st.number_input("Goles Local", min_value=0, max_value=20, value=0, key=f"gl_{fk}")
             with col_r2:
                 st.write(f"**Visitante:** {visita}")
-                goles_v = st.number_input("Goles Visitante", min_value=0, max_value=20, value=0, key="gv_in")
+                goles_v = st.number_input("Goles Visitante", min_value=0, max_value=20, value=0, key=f"gv_{fk}")
 
-            wo = st.checkbox("¿Victoria por W.O. (3-0 automático)?")
+            wo = st.checkbox("¿Victoria por W.O. (3-0 automático)?", key=f"wo_{fk}")
             if wo:
-                ganador_wo = st.radio("¿Quién gana por W.O.?", [local, visita])
+                ganador_wo = st.radio("¿Quién gana por W.O.?", [local, visita], key=f"ganador_wo_{fk}")
                 goles_l, goles_v = (3, 0) if ganador_wo == local else (0, 3)
 
             goleadores_data = []
@@ -161,13 +169,13 @@ with tab_registro:
                     if goles_l > 0:
                         st.write(f"⚽ Goleadores de {local}")
                         for i in range(goles_l):
-                            j = st.text_input(f"Gol L {i+1}", key=f"g_l_{i}")
+                            j = st.text_input(f"Gol L {i+1}", key=f"jug_l_{i}_{fk}")
                             if j: goleadores_data.append({"Torneo": torneo_actual, "Jornada": jornada_act, "Equipo": local, "Jugador": j, "Goles": 1})
                 with col_g2:
                     if goles_v > 0:
                         st.write(f"⚽ Goleadores de {visita}")
                         for i in range(goles_v):
-                            j = st.text_input(f"Gol V {i+1}", key=f"g_v_{i}")
+                            j = st.text_input(f"Gol V {i+1}", key=f"jug_v_{i}_{fk}")
                             if j: goleadores_data.append({"Torneo": torneo_actual, "Jornada": jornada_act, "Equipo": visita, "Jugador": j, "Goles": 1})
 
             transferencia_data = None
@@ -176,11 +184,10 @@ with tab_registro:
                 if ganador:
                     st.divider()
                     st.write(f"### 🔄 Mercado: Victoria de {ganador}")
-                    if st.checkbox(f"¿Registrar un refuerzo para {ganador}?"):
+                    if st.checkbox(f"¿Registrar un refuerzo para {ganador}?", key=f"check_t_{fk}"):
                         col_t1, col_t2 = st.columns(2)
-                        # MAGIA 3: Le agregamos keys a las transferencias
-                        with col_t1: toma = st.text_input("🟢 Jugador que TOMA (Refuerzo):", key="toma_in")
-                        with col_t2: cede = st.text_input("🔴 Jugador que CEDE:", value="J.G.", key="cede_in")
+                        with col_t1: toma = st.text_input("🟢 Jugador que TOMA (Refuerzo):", key=f"toma_{fk}")
+                        with col_t2: cede = st.text_input("🔴 Jugador que CEDE:", value="J.G.", key=f"cede_{fk}")
                         if toma: transferencia_data = {"Torneo": torneo_actual, "Jornada": jornada_act, "Equipo": ganador, "Toma": toma, "Cede": cede if cede else "J.G."}
 
             if st.button("Guardar Resultado Oficial", type="primary"):
@@ -195,9 +202,8 @@ with tab_registro:
                     if transferencia_data: 
                         conn.update(worksheet="Transferencias", data=pd.concat([df_transferencias, pd.DataFrame([transferencia_data])], ignore_index=True))
                     
-                    # MAGIA 4: Ahora borramos TODO lo que se usó en el partido (incluyendo la foto y transferencias)
-                    claves_a_borrar = [k for k in st.session_state.keys() if k.startswith('g_l_') or k.startswith('g_v_') or k in ['gl_in', 'gv_in', 'fotos_uploader', 'toma_in', 'cede_in']]
-                    for k in claves_a_borrar: del st.session_state[k]
+                    # EL TRUCO MAESTRO: Sumamos 1 a la llave. Esto destruye todos los formularios viejos al instante.
+                    st.session_state["fk"] += 1
                     
                     st.cache_data.clear() 
                     
