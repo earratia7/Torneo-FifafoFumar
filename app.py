@@ -21,10 +21,10 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
     # Aumentamos la memoria caché a 600 segundos (10 minutos) para no agotar la cuota
-    df_partidos = conn.read(worksheet="Partidos", usecols=[0, 1, 2, 3, 4, 5, 6], ttl=600).dropna(how="all")
-    df_goleadores = conn.read(worksheet="Goleadores", usecols=[0, 1, 2, 3, 4], ttl=600).dropna(how="all")
-    df_equipos = conn.read(worksheet="Equipos", usecols=[0, 1], ttl=600).dropna(how="all")
-    df_transferencias = conn.read(worksheet="Transferencias", usecols=[0, 1, 2, 3, 4], ttl=600).dropna(how="all")
+    df_partidos = conn.read(worksheet="Partidos", usecols=[0, 1, 2, 3, 4, 5, 6], ttl=60).dropna(how="all")
+    df_goleadores = conn.read(worksheet="Goleadores", usecols=[0, 1, 2, 3, 4], ttl=60).dropna(how="all")
+    df_equipos = conn.read(worksheet="Equipos", usecols=[0, 1], ttl=60).dropna(how="all")
+    df_transferencias = conn.read(worksheet="Transferencias", usecols=[0, 1, 2, 3, 4], ttl=60).dropna(how="all")
 except Exception as e:
     st.error(f"⚠️ Error de conexión a Google Sheets: {e}") # Ahora nos dirá exactamente el error
     df_partidos = pd.DataFrame(columns=["Torneo", "Jornada", "Local", "Goles_L", "Goles_V", "Visitante", "WO"])
@@ -54,6 +54,12 @@ with st.sidebar:
     torneo_actual = st.selectbox("Torneo Activo:", lista_torneos)
     semana_actual = st.number_input("Semana de Juego:", min_value=1, max_value=20, value=1)
 
+# --- NUEVO BOTÓN DE ACTUALIZACIÓN ---
+    st.divider()
+    if st.button("🔄 Forzar Actualización", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+        
 st.title(f"🏆 Torneo FifafoFumar FC26 - {torneo_actual}")
 equipos_activos = df_equipos[df_equipos['Torneo'] == torneo_actual]['Equipo'].tolist() if not df_equipos.empty else []
 
