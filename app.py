@@ -51,7 +51,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- MEMORIA ---
+# --- MEMORIA DE SELECCIÓN Y SCROLL ---
 if "partido_seleccionado_click" not in st.session_state:
     st.session_state["partido_seleccionado_click"] = None
 if "scroll_trigger" not in st.session_state:
@@ -138,8 +138,15 @@ with tab_registro:
         st.markdown("<div id='registro_ancla'></div>", unsafe_allow_html=True)
         st.subheader("📝 Registrar Resultado")
         
+        # --- EL TRUCO DEL RELOJ PARA EL SCROLL INFALIBLE ---
         if st.session_state["scroll_trigger"]:
-            js_script = f"<script>window.parent.document.getElementById('registro_ancla').scrollIntoView({{behavior: 'smooth'}});</script>"
+            js_script = f"""
+            <script>
+                // Marca temporal: {time.time()}
+                var ancla = window.parent.document.getElementById('registro_ancla');
+                if(ancla) ancla.scrollIntoView({{behavior: 'smooth'}});
+            </script>
+            """
             st.components.v1.html(js_script, height=0)
             st.session_state["scroll_trigger"] = False
         
@@ -154,13 +161,14 @@ with tab_registro:
             p_data = next(p for p in pendientes if f"{p['Jornada']}: {p['Local']} vs {p['Visitante']}" == partido_sel)
             loc, vis, jorn = p_data['Local'], p_data['Visitante'], p_data['Jornada']
 
-            # --- NUEVO SISTEMA IA: Toggle en lugar de Expander ---
-            usar_ia = st.toggle("🤖 Activar Escáner de IA (Autocompletado)")
-            if usar_ia:
-                st.markdown("##### 📸 Sube las fotos del marcador y goleadores:")
-                fotos = st.file_uploader("", type=["png","jpg","jpeg"], accept_multiple_files=True, key=f"f_{st.session_state['fk']}")
-                if st.button("👁️ Analizar y Extraer", type="secondary"):
-                    if fotos and ia_lista:
+            # --- NUEVA UI DE INTELIGENCIA ARTIFICIAL MÁS LIMPIA ---
+            st.markdown(f"###### 🤖 Autocompletar {loc} vs {vis} con IA")
+            fotos = st.file_uploader("Sube fotos del marcador final", type=["png","jpg","jpeg"], accept_multiple_files=True, key=f"f_{st.session_state['fk']}")
+            
+            # El botón de analizar solo aparece si hay fotos subidas
+            if fotos:
+                if st.button("👁️ Analizar Imágenes", type="secondary"):
+                    if ia_lista:
                         with st.spinner("IA analizando TODAS las fotos..."):
                             try:
                                 prompt_ia = f"""
@@ -171,7 +179,6 @@ with tab_registro:
                                 Devuelve ÚNICAMENTE el JSON válido.
                                 """
                                 imgs = [Image.open(f) for f in fotos]
-                                # AHORA SÍ PASAMOS TODAS LAS IMÁGENES AL MISMO TIEMPO
                                 res = modelo_ia.generate_content([prompt_ia] + imgs)
                                 texto_json = res.text.replace("```json","").replace("```","").strip()
                                 d = json.loads(texto_json)
@@ -183,13 +190,16 @@ with tab_registro:
                                     st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_visitante", 0)
                                     for i, jug in enumerate(d.get("goleadores_local", [])): st.session_state[f"jug_l_{i}_{st.session_state['fk']}"] = jug
                                     for i, jug in enumerate(d.get("goleadores_visitante", [])): st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
-                                    st.success("✅ ¡Datos extraídos!"); st.rerun() 
+                                    st.success("✅ ¡Datos extraídos correctamente!")
+                                    time.sleep(1)
+                                    st.rerun() 
                             except Exception as e:
-                                # Ahora nos mostrará exactamente por qué falló
-                                st.error(f"❌ Error IA. Detalles: {e}")
+                                st.error(f"❌ No se pudo procesar. Asegúrate de que las fotos sean claras.")
                     else:
-                        st.warning("⚠️ Falta subir foto o API Key no válida.")
+                        st.warning("⚠️ La IA no está configurada.")
 
+            # --- FORMULARIO MANUAL ---
+            st.write("") # Espacio
             col1, col2 = st.columns(2)
             with col1: gl = st.number_input(f"Goles {loc}", min_value=0, key=f"gl_{st.session_state['fk']}")
             with col2: gv = st.number_input(f"Goles {vis}", min_value=0, key=f"gv_{st.session_state['fk']}")
@@ -238,7 +248,7 @@ with tab_registro:
                     st.cache_data.clear()
                     st.success("✅ ¡Guardado!"); time.sleep(1); st.rerun()
 
-# --- TABLAS (IGUAL) ---
+# --- TABLAS DE POSICIONES Y DEMÁS (IGUAL) ---
 with tab_tabla:
     partidos_torneo = df_partidos[df_partidos['Torneo'] == torneo_actual]
     if not partidos_torneo.empty:
