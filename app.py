@@ -51,7 +51,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- MEMORIA DE SELECCIÓN Y SCROLL ---
+# --- MEMORIA ---
 if "partido_seleccionado_click" not in st.session_state:
     st.session_state["partido_seleccionado_click"] = None
 if "scroll_trigger" not in st.session_state:
@@ -138,11 +138,9 @@ with tab_registro:
         st.markdown("<div id='registro_ancla'></div>", unsafe_allow_html=True)
         st.subheader("📝 Registrar Resultado")
         
-        # --- EL TRUCO DEL RELOJ PARA EL SCROLL INFALIBLE ---
         if st.session_state["scroll_trigger"]:
             js_script = f"""
             <script>
-                // Marca temporal: {time.time()}
                 var ancla = window.parent.document.getElementById('registro_ancla');
                 if(ancla) ancla.scrollIntoView({{behavior: 'smooth'}});
             </script>
@@ -161,22 +159,32 @@ with tab_registro:
             p_data = next(p for p in pendientes if f"{p['Jornada']}: {p['Local']} vs {p['Visitante']}" == partido_sel)
             loc, vis, jorn = p_data['Local'], p_data['Visitante'], p_data['Jornada']
 
-            # --- NUEVA UI DE INTELIGENCIA ARTIFICIAL MÁS LIMPIA ---
             st.markdown(f"###### 🤖 Autocompletar {loc} vs {vis} con IA")
             fotos = st.file_uploader("Sube fotos del marcador final", type=["png","jpg","jpeg"], accept_multiple_files=True, key=f"f_{st.session_state['fk']}")
             
-            # El botón de analizar solo aparece si hay fotos subidas
             if fotos:
                 if st.button("👁️ Analizar Imágenes", type="secondary"):
                     if ia_lista:
-                        with st.spinner("IA analizando TODAS las fotos..."):
+                        with st.spinner("IA analizando..."):
                             try:
+                                # --- INSTRUCCIONES ESTRICTAS PARA LA IA ---
                                 prompt_ia = f"""
-                                Eres un árbitro de EA FC. Usuario seleccionó: {loc} vs {vis}.
-                                Verifica que las fotos correspondan a estos equipos.
-                                Si no coinciden devuelve JSON con "error".
-                                Si coinciden devuelve JSON con "goles_local", "goles_visitante", "goleadores_local" y "goleadores_visitante".
-                                Devuelve ÚNICAMENTE el JSON válido.
+                                Eres un árbitro experto de EA FC.
+                                El usuario seleccionó el partido: {loc} (Local) vs {vis} (Visitante).
+                                
+                                1. Verifica si las fotos corresponden a estos equipos. Si NO son, devuelve exactamente este JSON: {{"error": "Los equipos en la foto no coinciden."}}
+                                2. Si SÍ son, extrae el resultado y devuélvelo en este formato JSON EXACTO:
+                                {{
+                                  "goles_local": numero,
+                                  "goles_visitante": numero,
+                                  "goleadores_local": ["Nombre 1", "Nombre 2"],
+                                  "goleadores_visitante": []
+                                }}
+                                
+                                REGLAS DE ORO:
+                                - La cantidad de nombres en la lista DEBE coincidir con el número de goles.
+                                - Si un jugador metió 2 o 3 goles, DEBES REPETIR su nombre en la lista las veces que anotó.
+                                - Solo devuelve el JSON, sin texto extra.
                                 """
                                 imgs = [Image.open(f) for f in fotos]
                                 res = modelo_ia.generate_content([prompt_ia] + imgs)
@@ -194,12 +202,12 @@ with tab_registro:
                                     time.sleep(1)
                                     st.rerun() 
                             except Exception as e:
-                                st.error(f"❌ No se pudo procesar. Asegúrate de que las fotos sean claras.")
+                                st.error(f"❌ Error al procesar: {e}")
                     else:
                         st.warning("⚠️ La IA no está configurada.")
 
             # --- FORMULARIO MANUAL ---
-            st.write("") # Espacio
+            st.write("") 
             col1, col2 = st.columns(2)
             with col1: gl = st.number_input(f"Goles {loc}", min_value=0, key=f"gl_{st.session_state['fk']}")
             with col2: gv = st.number_input(f"Goles {vis}", min_value=0, key=f"gv_{st.session_state['fk']}")
@@ -248,7 +256,7 @@ with tab_registro:
                     st.cache_data.clear()
                     st.success("✅ ¡Guardado!"); time.sleep(1); st.rerun()
 
-# --- TABLAS DE POSICIONES Y DEMÁS (IGUAL) ---
+# --- TABLAS (IGUAL) ---
 with tab_tabla:
     partidos_torneo = df_partidos[df_partidos['Torneo'] == torneo_actual]
     if not partidos_torneo.empty:
