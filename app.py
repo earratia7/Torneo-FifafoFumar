@@ -20,10 +20,11 @@ except Exception as e:
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    df_partidos = conn.read(worksheet="Partidos", usecols=[0, 1, 2, 3, 4, 5, 6], ttl=5).dropna(how="all")
-    df_goleadores = conn.read(worksheet="Goleadores", usecols=[0, 1, 2, 3, 4], ttl=5).dropna(how="all")
-    df_equipos = conn.read(worksheet="Equipos", usecols=[0, 1], ttl=5).dropna(how="all")
-    df_transferencias = conn.read(worksheet="Transferencias", usecols=[0, 1, 2, 3, 4], ttl=5).dropna(how="all")
+    # Aumentamos la memoria caché a 600 segundos (10 minutos) para no agotar la cuota
+    df_partidos = conn.read(worksheet="Partidos", usecols=[0, 1, 2, 3, 4, 5, 6], ttl=600).dropna(how="all")
+    df_goleadores = conn.read(worksheet="Goleadores", usecols=[0, 1, 2, 3, 4], ttl=600).dropna(how="all")
+    df_equipos = conn.read(worksheet="Equipos", usecols=[0, 1], ttl=600).dropna(how="all")
+    df_transferencias = conn.read(worksheet="Transferencias", usecols=[0, 1, 2, 3, 4], ttl=600).dropna(how="all")
 except Exception as e:
     st.error(f"⚠️ Error de conexión a Google Sheets: {e}") # Ahora nos dirá exactamente el error
     df_partidos = pd.DataFrame(columns=["Torneo", "Jornada", "Local", "Goles_L", "Goles_V", "Visitante", "WO"])
