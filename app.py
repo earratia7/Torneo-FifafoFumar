@@ -216,7 +216,8 @@ with tab_goleo:
         tabla_goleo = goles_torneo.groupby(['Jugador', 'Equipo'])['Goles'].sum().reset_index()
         tabla_goleo = tabla_goleo.sort_values(by='Goles', ascending=False).reset_index(drop=True)
         tabla_goleo.index += 1 
-       st.dataframe(
+        
+        st.dataframe(
             tabla_goleo, 
             use_container_width=True,
             column_config={
