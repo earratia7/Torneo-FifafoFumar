@@ -9,7 +9,6 @@ import time
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
 # --- SISTEMA DE RESETEO INFALIBLE ---
-# Creamos un número que cambiará cada vez que guardemos, forzando a la app a limpiar todo
 if "fk" not in st.session_state:
     st.session_state["fk"] = 0
 fk = st.session_state["fk"]
@@ -58,7 +57,6 @@ with st.sidebar:
     lista_torneos = df_equipos['Torneo'].unique().tolist() if not df_equipos.empty else ["Sin Torneos"]
     torneo_actual = st.selectbox("Torneo Activo:", lista_torneos)
     
-    # Memoria de la semana de juego
     semana_actual = st.number_input("Semana de Juego:", min_value=1, max_value=20, value=1, key="memoria_semana")
     
     st.divider()
@@ -121,28 +119,40 @@ with tab_registro:
                 if not ia_lista:
                     st.warning("⚠️ La IA no está configurada.")
                 else:
-                    # Aplicamos la llave dinámica a la foto
                     fotos_subidas = st.file_uploader("Sube imágenes del marcador", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key=f"foto_{fk}")
                     if st.button("🤖 Analizar y Autocompletar"):
                         if fotos_subidas:
-                            with st.spinner("La IA está leyendo y llenando los datos..."):
+                            with st.spinner("Revisando partido y leyendo datos..."):
                                 try:
-                                    prompt_ia = """
-                                    Eres un sistema automático. Analiza las imágenes del marcador. Devuelve ÚNICAMENTE un objeto JSON válido.
-                                    Estructura: {"goles_local": entero, "goles_visitante": entero, "goleadores_local": ["Jugador 1"], "goleadores_visitante": ["Jugador 1"]}
+                                    # MAGIA DE VALIDACIÓN: Le pasamos los nombres a la IA
+                                    prompt_ia = f"""
+                                    Eres un árbitro estricto de EA FC. Analiza las imágenes del marcador.
+                                    El usuario seleccionó que este partido es: {local} (Local) vs {visita} (Visitante).
+                                    
+                                    Instrucción 1: Verifica si los nombres o abreviaturas en las fotos coinciden con estos equipos (ignora los emojis y nombres entre paréntesis).
+                                    Instrucción 2: Si las fotos muestran a OTROS equipos distintos, devuelve EXACTAMENTE este JSON:
+                                    {{"error": "¡Alto ahí! Las fotos muestran a otros equipos, no a {local} y {visita}."}}
+                                    
+                                    Instrucción 3: Si los equipos SÍ son correctos, devuelve los datos en este JSON:
+                                    {{"goles_local": entero, "goles_visitante": entero, "goleadores_local": ["Jugador 1"], "goleadores_visitante": ["Jugador 1"]}}
+                                    
+                                    Devuelve ÚNICAMENTE el JSON válido.
                                     """
                                     imagenes_pil = [Image.open(f) for f in fotos_subidas]
                                     respuesta = modelo_ia.generate_content([prompt_ia] + imagenes_pil)
                                     texto_json = respuesta.text.replace("```json", "").replace("```", "").strip()
                                     datos_ia = json.loads(texto_json)
                                     
-                                    # Inyectamos los datos en las llaves dinámicas
-                                    st.session_state[f"gl_{fk}"] = datos_ia.get("goles_local", 0)
-                                    st.session_state[f"gv_{fk}"] = datos_ia.get("goles_visitante", 0)
-                                    for i, jug in enumerate(datos_ia.get("goleadores_local", [])): st.session_state[f"jug_l_{i}_{fk}"] = jug
-                                    for i, jug in enumerate(datos_ia.get("goleadores_visitante", [])): st.session_state[f"jug_v_{i}_{fk}"] = jug
-                                        
-                                    st.success("✅ ¡Datos extraídos!"); st.rerun() 
+                                    # Verificamos si la IA detectó fraude
+                                    if "error" in datos_ia:
+                                        st.error(f"❌ {datos_ia['error']}")
+                                    else:
+                                        st.session_state[f"gl_{fk}"] = datos_ia.get("goles_local", 0)
+                                        st.session_state[f"gv_{fk}"] = datos_ia.get("goles_visitante", 0)
+                                        for i, jug in enumerate(datos_ia.get("goleadores_local", [])): st.session_state[f"jug_l_{i}_{fk}"] = jug
+                                        for i, jug in enumerate(datos_ia.get("goleadores_visitante", [])): st.session_state[f"jug_v_{i}_{fk}"] = jug
+                                            
+                                        st.success("✅ ¡Datos extraídos y validados!"); st.rerun() 
                                 except Exception as e:
                                     st.error(f"Hubo un error interpretando la imagen: {e}")
                         else:
@@ -151,7 +161,6 @@ with tab_registro:
             col_r1, col_r2 = st.columns(2)
             with col_r1:
                 st.write(f"**Local:** {local}")
-                # Llave dinámica en los inputs
                 goles_l = st.number_input("Goles Local", min_value=0, max_value=20, value=0, key=f"gl_{fk}")
             with col_r2:
                 st.write(f"**Visitante:** {visita}")
@@ -202,9 +211,7 @@ with tab_registro:
                     if transferencia_data: 
                         conn.update(worksheet="Transferencias", data=pd.concat([df_transferencias, pd.DataFrame([transferencia_data])], ignore_index=True))
                     
-                    # EL TRUCO MAESTRO: Sumamos 1 a la llave. Esto destruye todos los formularios viejos al instante.
                     st.session_state["fk"] += 1
-                    
                     st.cache_data.clear() 
                     
                 st.success("✅ ¡Partido y datos guardados exitosamente!")
