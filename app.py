@@ -3,7 +3,8 @@ import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 import google.generativeai as genai
 from PIL import Image
-import json  # <-- NUEVA HERRAMIENTA PARA LEER DATOS DE MÁQUINA
+import json
+import time # <-- Para darle un respiro a Google
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
@@ -24,7 +25,7 @@ try:
     df_equipos = conn.read(worksheet="Equipos", usecols=[0, 1], ttl=5).dropna(how="all")
     df_transferencias = conn.read(worksheet="Transferencias", usecols=[0, 1, 2, 3, 4], ttl=5).dropna(how="all")
 except Exception as e:
-    st.error(f"⚠️ Atención: Verifica tu conexión a Google Sheets.")
+    st.error(f"⚠️ Error de conexión a Google Sheets: {e}") # Ahora nos dirá exactamente el error
     df_partidos = pd.DataFrame(columns=["Torneo", "Jornada", "Local", "Goles_L", "Goles_V", "Visitante", "WO"])
     df_goleadores = pd.DataFrame(columns=["Torneo", "Jornada", "Equipo", "Jugador", "Goles"])
     df_equipos = pd.DataFrame(columns=["Torneo", "Equipo"])
@@ -69,6 +70,7 @@ with tab_config:
                 st.error("Ese equipo ya está inscrito.")
             else:
                 conn.update(worksheet="Equipos", data=pd.concat([df_equipos, pd.DataFrame([{"Torneo": nuevo_torneo, "Equipo": nuevo_equipo}])], ignore_index=True))
+                st.cache_data.clear()
                 st.success("✅ Registrado exitosamente."); st.rerun()
 
 # --- PESTAÑA 1: CALENDARIO Y REGISTRO ---
@@ -102,7 +104,6 @@ with tab_registro:
             datos_partido = opciones_partidos[partido_seleccionado]
             local, visita, jornada_act = datos_partido['Local'], datos_partido['Visitante'], datos_partido['Jornada']
             
-            # --- ZONA DE IA: VISIÓN Y AUTOCOMPLETADO ---
             with st.expander("📸 Autocompletar con IA (Opcional)", expanded=False):
                 if not ia_lista:
                     st.warning("⚠️ La IA no está configurada.")
@@ -113,41 +114,24 @@ with tab_registro:
                             with st.spinner("La IA está leyendo y llenando los datos..."):
                                 try:
                                     prompt_ia = """
-                                    Eres un sistema automático. Analiza las imágenes del marcador del partido.
-                                    Devuelve ÚNICAMENTE un objeto JSON válido. No uses formato markdown, ni texto adicional.
-                                    Estructura exacta:
-                                    {
-                                      "goles_local": (número entero),
-                                      "goles_visitante": (número entero),
-                                      "goleadores_local": ["Nombre Jugador 1", "Nombre Jugador 2"],
-                                      "goleadores_visitante": ["Nombre Jugador 1"]
-                                    }
-                                    Asegúrate de que la cantidad de nombres coincida con el número de goles. Si un jugador metió 2, repite su nombre. Si hay 0 goles, la lista debe estar vacía []. Solo pon el apellido o nombre principal (sin el minuto).
+                                    Eres un sistema automático. Analiza las imágenes del marcador. Devuelve ÚNICAMENTE un objeto JSON válido.
+                                    Estructura: {"goles_local": entero, "goles_visitante": entero, "goleadores_local": ["Jugador 1"], "goleadores_visitante": ["Jugador 1"]}
                                     """
                                     imagenes_pil = [Image.open(f) for f in fotos_subidas]
                                     respuesta = modelo_ia.generate_content([prompt_ia] + imagenes_pil)
-                                    
-                                    # Limpiamos el texto por si la IA es rebelde y le pone comillas raras
                                     texto_json = respuesta.text.replace("```json", "").replace("```", "").strip()
                                     datos_ia = json.loads(texto_json)
                                     
-                                    # MAGIA: Inyectar en la memoria de la app
                                     st.session_state["gl_in"] = datos_ia.get("goles_local", 0)
                                     st.session_state["gv_in"] = datos_ia.get("goles_visitante", 0)
-                                    
-                                    for i, jug in enumerate(datos_ia.get("goleadores_local", [])):
-                                        st.session_state[f"g_l_{i}"] = jug
-                                    for i, jug in enumerate(datos_ia.get("goleadores_visitante", [])):
-                                        st.session_state[f"g_v_{i}"] = jug
+                                    for i, jug in enumerate(datos_ia.get("goleadores_local", [])): st.session_state[f"g_l_{i}"] = jug
+                                    for i, jug in enumerate(datos_ia.get("goleadores_visitante", [])): st.session_state[f"g_v_{i}"] = jug
                                         
-                                    st.success("✅ ¡Datos extraídos! Los formularios de abajo se han actualizado.")
-                                    # Forzamos una recarga rápida para que los cuadros de texto absorban la memoria
-                                    st.rerun() 
+                                    st.success("✅ ¡Datos extraídos!"); st.rerun() 
                                 except Exception as e:
                                     st.error(f"Hubo un error interpretando la imagen: {e}")
                         else:
                             st.warning("Por favor sube una foto primero.")
-            # ------------------------------------------
 
             col_r1, col_r2 = st.columns(2)
             with col_r1:
@@ -191,13 +175,26 @@ with tab_registro:
                         if toma: transferencia_data = {"Torneo": torneo_actual, "Jornada": jornada_act, "Equipo": ganador, "Toma": toma, "Cede": cede if cede else "J.G."}
 
             if st.button("Guardar Resultado Oficial", type="primary"):
-                conn.update(worksheet="Partidos", data=pd.concat([df_partidos, pd.DataFrame([{"Torneo": torneo_actual, "Jornada": jornada_act, "Local": local, "Goles_L": goles_l, "Goles_V": goles_v, "Visitante": visita, "WO": wo}])], ignore_index=True))
-                if goleadores_data: conn.update(worksheet="Goleadores", data=pd.concat([df_goleadores, pd.DataFrame(goleadores_data)], ignore_index=True))
-                if transferencia_data: conn.update(worksheet="Transferencias", data=pd.concat([df_transferencias, pd.DataFrame([transferencia_data])], ignore_index=True))
-                
-                # Limpiar memoria después de guardar
-                for key in st.session_state.keys(): del st.session_state[key]
-                st.success("✅ ¡Partido y datos guardados exitosamente!"); st.rerun()
+                with st.spinner("Sincronizando con Google Sheets..."):
+                    conn.update(worksheet="Partidos", data=pd.concat([df_partidos, pd.DataFrame([{"Torneo": torneo_actual, "Jornada": jornada_act, "Local": local, "Goles_L": goles_l, "Goles_V": goles_v, "Visitante": visita, "WO": wo}])], ignore_index=True))
+                    time.sleep(1) # Pausa de 1 segundo para no saturar a Google
+                    
+                    if goleadores_data: 
+                        conn.update(worksheet="Goleadores", data=pd.concat([df_goleadores, pd.DataFrame(goleadores_data)], ignore_index=True))
+                        time.sleep(1)
+                        
+                    if transferencia_data: 
+                        conn.update(worksheet="Transferencias", data=pd.concat([df_transferencias, pd.DataFrame([transferencia_data])], ignore_index=True))
+                    
+                    # Limpieza segura de memoria (solo borramos los cuadros de texto, no toda la app)
+                    claves_a_borrar = [k for k in st.session_state.keys() if k.startswith('g_l_') or k.startswith('g_v_') or k in ['gl_in', 'gv_in']]
+                    for k in claves_a_borrar: del st.session_state[k]
+                    
+                    st.cache_data.clear() # Fuerza a la app a leer los datos frescos
+                    
+                st.success("✅ ¡Partido y datos guardados exitosamente!")
+                time.sleep(1)
+                st.rerun()
 
 # --- PESTAÑA 2: TABLA DE POSICIONES ---
 with tab_tabla:
