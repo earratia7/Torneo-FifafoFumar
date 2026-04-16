@@ -4,7 +4,7 @@ from streamlit_gsheets import GSheetsConnection
 import google.generativeai as genai
 from PIL import Image
 import json
-import time # <-- Para darle un respiro a Google
+import time
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
@@ -20,13 +20,12 @@ except Exception as e:
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # Aumentamos la memoria caché a 600 segundos (10 minutos) para no agotar la cuota
     df_partidos = conn.read(worksheet="Partidos", usecols=[0, 1, 2, 3, 4, 5, 6], ttl=60).dropna(how="all")
     df_goleadores = conn.read(worksheet="Goleadores", usecols=[0, 1, 2, 3, 4], ttl=60).dropna(how="all")
     df_equipos = conn.read(worksheet="Equipos", usecols=[0, 1], ttl=60).dropna(how="all")
     df_transferencias = conn.read(worksheet="Transferencias", usecols=[0, 1, 2, 3, 4], ttl=60).dropna(how="all")
 except Exception as e:
-    st.error(f"⚠️ Error de conexión a Google Sheets: {e}") # Ahora nos dirá exactamente el error
+    st.error(f"⚠️ Error de conexión a Google Sheets: {e}")
     df_partidos = pd.DataFrame(columns=["Torneo", "Jornada", "Local", "Goles_L", "Goles_V", "Visitante", "WO"])
     df_goleadores = pd.DataFrame(columns=["Torneo", "Jornada", "Equipo", "Jugador", "Goles"])
     df_equipos = pd.DataFrame(columns=["Torneo", "Equipo"])
@@ -52,14 +51,15 @@ with st.sidebar:
     st.header("⚙️ Configuración")
     lista_torneos = df_equipos['Torneo'].unique().tolist() if not df_equipos.empty else ["Sin Torneos"]
     torneo_actual = st.selectbox("Torneo Activo:", lista_torneos)
-    semana_actual = st.number_input("Semana de Juego:", min_value=1, max_value=20, value=1)
-
-# --- NUEVO BOTÓN DE ACTUALIZACIÓN ---
+    
+    # MAGIA 1: Le agregamos key="memoria_semana" para que nunca olvide en qué semana estás
+    semana_actual = st.number_input("Semana de Juego:", min_value=1, max_value=20, value=1, key="memoria_semana")
+    
     st.divider()
     if st.button("🔄 Forzar Actualización", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
-        
+
 st.title(f"🏆 Torneo FifafoFumar FC26 - {torneo_actual}")
 equipos_activos = df_equipos[df_equipos['Torneo'] == torneo_actual]['Equipo'].tolist() if not df_equipos.empty else []
 
@@ -115,7 +115,8 @@ with tab_registro:
                 if not ia_lista:
                     st.warning("⚠️ La IA no está configurada.")
                 else:
-                    fotos_subidas = st.file_uploader("Sube imágenes del marcador", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+                    # MAGIA 2: Agregamos key="fotos_uploader" para poder borrarlo después
+                    fotos_subidas = st.file_uploader("Sube imágenes del marcador", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="fotos_uploader")
                     if st.button("🤖 Analizar y Autocompletar"):
                         if fotos_subidas:
                             with st.spinner("La IA está leyendo y llenando los datos..."):
@@ -177,14 +178,15 @@ with tab_registro:
                     st.write(f"### 🔄 Mercado: Victoria de {ganador}")
                     if st.checkbox(f"¿Registrar un refuerzo para {ganador}?"):
                         col_t1, col_t2 = st.columns(2)
-                        with col_t1: toma = st.text_input("🟢 Jugador que TOMA (Refuerzo):")
-                        with col_t2: cede = st.text_input("🔴 Jugador que CEDE:", value="J.G.")
+                        # MAGIA 3: Le agregamos keys a las transferencias
+                        with col_t1: toma = st.text_input("🟢 Jugador que TOMA (Refuerzo):", key="toma_in")
+                        with col_t2: cede = st.text_input("🔴 Jugador que CEDE:", value="J.G.", key="cede_in")
                         if toma: transferencia_data = {"Torneo": torneo_actual, "Jornada": jornada_act, "Equipo": ganador, "Toma": toma, "Cede": cede if cede else "J.G."}
 
             if st.button("Guardar Resultado Oficial", type="primary"):
                 with st.spinner("Sincronizando con Google Sheets..."):
                     conn.update(worksheet="Partidos", data=pd.concat([df_partidos, pd.DataFrame([{"Torneo": torneo_actual, "Jornada": jornada_act, "Local": local, "Goles_L": goles_l, "Goles_V": goles_v, "Visitante": visita, "WO": wo}])], ignore_index=True))
-                    time.sleep(1) # Pausa de 1 segundo para no saturar a Google
+                    time.sleep(1)
                     
                     if goleadores_data: 
                         conn.update(worksheet="Goleadores", data=pd.concat([df_goleadores, pd.DataFrame(goleadores_data)], ignore_index=True))
@@ -193,11 +195,11 @@ with tab_registro:
                     if transferencia_data: 
                         conn.update(worksheet="Transferencias", data=pd.concat([df_transferencias, pd.DataFrame([transferencia_data])], ignore_index=True))
                     
-                    # Limpieza segura de memoria (solo borramos los cuadros de texto, no toda la app)
-                    claves_a_borrar = [k for k in st.session_state.keys() if k.startswith('g_l_') or k.startswith('g_v_') or k in ['gl_in', 'gv_in']]
+                    # MAGIA 4: Ahora borramos TODO lo que se usó en el partido (incluyendo la foto y transferencias)
+                    claves_a_borrar = [k for k in st.session_state.keys() if k.startswith('g_l_') or k.startswith('g_v_') or k in ['gl_in', 'gv_in', 'fotos_uploader', 'toma_in', 'cede_in']]
                     for k in claves_a_borrar: del st.session_state[k]
                     
-                    st.cache_data.clear() # Fuerza a la app a leer los datos frescos
+                    st.cache_data.clear() 
                     
                 st.success("✅ ¡Partido y datos guardados exitosamente!")
                 time.sleep(1)
