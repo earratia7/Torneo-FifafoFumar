@@ -11,7 +11,7 @@ st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide
 try:
     # Intenta leer la llave secreta
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    modelo_ia = genai.GenerativeModel('gemini-1.5-flash')
+    modelo_ia = genai.GenerativeModel('gemini-1.5-pro-latest')
     ia_lista = True
 except Exception as e:
     ia_lista = False
