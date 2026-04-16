@@ -8,16 +8,15 @@ import time
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
-# --- ESTILOS CSS REPARADOS PARA LOS BOTONES ---
+# --- ESTILOS CSS ---
 st.markdown("""
     <style>
-    /* Estilo para los BOTONES de partidos PENDIENTES */
     div.stButton > button {
         width: 100% !important;
         background-color: #1E1E1E !important;
         color: white !important;
         border: 1px solid #333 !important;
-        border-left: 6px solid #FFA500 !important; /* Borde naranja idéntico a la tarjeta verde */
+        border-left: 6px solid #FFA500 !important;
         border-radius: 12px !important;
         padding: 15px !important;
         margin-bottom: 10px !important;
@@ -29,16 +28,13 @@ st.markdown("""
         border-color: #FFB732 !important;
         transform: scale(1.02);
     }
-    /* El truco maestro para apilar y centrar el texto dentro del botón */
     div.stButton > button p {
         text-align: center !important;
         width: 100% !important;
-        white-space: pre-line !important; /* Obliga a respetar los saltos de línea */
+        white-space: pre-line !important; 
         font-size: 16px !important;
         line-height: 1.6 !important;
     }
-    
-    /* Estilo para las TARJETAS de partidos JUGADOS */
     .match-card-played {
         background-color: #1E1E1E;
         border: 1px solid #333;
@@ -55,7 +51,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- MEMORIA DE SELECCIÓN Y SCROLL ---
+# --- MEMORIA ---
 if "partido_seleccionado_click" not in st.session_state:
     st.session_state["partido_seleccionado_click"] = None
 if "scroll_trigger" not in st.session_state:
@@ -131,29 +127,21 @@ with tab_registro:
                     st.markdown(f"""<div class="match-card-played"><div class="jornada-tag">✅ {p['Jornada']}</div><div class="teams-text">{p['Local']} vs {p['Visitante']}</div><div class="score-text">{gl} - {gv}</div></div>""", unsafe_allow_html=True)
                 else:
                     pendientes.append(p)
-                    # El texto con saltos de línea explícitos para que el CSS lo apile
                     label = f"⏳ {p['Jornada']}\n{p['Local']} vs {p['Visitante']}\nPendiente"
                     key_unica = f"btn_{p['Jornada']}_{p['Local'].split()[0]}_{idx}"
                     if st.button(label, key=key_unica):
                         st.session_state["partido_seleccionado_click"] = f"{p['Jornada']}: {p['Local']} vs {p['Visitante']}"
-                        st.session_state["scroll_trigger"] = True # Activamos la orden de bajar
+                        st.session_state["scroll_trigger"] = True
                         st.rerun()
                     
         st.divider()
         st.markdown("<div id='registro_ancla'></div>", unsafe_allow_html=True)
         st.subheader("📝 Registrar Resultado")
         
-        # --- LÓGICA DE SCROLL INFALIBLE ---
         if st.session_state["scroll_trigger"]:
-            # Usamos time.time() para que el bloque HTML sea único y siempre se ejecute
-            js_script = f"""
-            <script>
-                // Marca de tiempo: {time.time()}
-                window.parent.document.getElementById('registro_ancla').scrollIntoView({{behavior: 'smooth'}});
-            </script>
-            """
+            js_script = f"<script>window.parent.document.getElementById('registro_ancla').scrollIntoView({{behavior: 'smooth'}});</script>"
             st.components.v1.html(js_script, height=0)
-            st.session_state["scroll_trigger"] = False # Apagamos el trigger para que no se atore
+            st.session_state["scroll_trigger"] = False
         
         if st.session_state["partido_seleccionado_click"]:
              st.info(f"📍 Registrando: {st.session_state['partido_seleccionado_click']}")
@@ -166,32 +154,91 @@ with tab_registro:
             p_data = next(p for p in pendientes if f"{p['Jornada']}: {p['Local']} vs {p['Visitante']}" == partido_sel)
             loc, vis, jorn = p_data['Local'], p_data['Visitante'], p_data['Jornada']
 
-            with st.expander("📸 Autocompletar con IA"):
-                fotos = st.file_uploader("Subir fotos", type=["png","jpg","jpeg"], accept_multiple_files=True, key=f"f_{st.session_state['fk']}")
-                if st.button("🤖 Analizar"):
+            # --- NUEVO SISTEMA IA: Toggle en lugar de Expander ---
+            usar_ia = st.toggle("🤖 Activar Escáner de IA (Autocompletado)")
+            if usar_ia:
+                st.markdown("##### 📸 Sube las fotos del marcador y goleadores:")
+                fotos = st.file_uploader("", type=["png","jpg","jpeg"], accept_multiple_files=True, key=f"f_{st.session_state['fk']}")
+                if st.button("👁️ Analizar y Extraer", type="secondary"):
                     if fotos and ia_lista:
-                        with st.spinner("Analizando..."):
+                        with st.spinner("IA analizando TODAS las fotos..."):
                             try:
+                                prompt_ia = f"""
+                                Eres un árbitro de EA FC. Usuario seleccionó: {loc} vs {vis}.
+                                Verifica que las fotos correspondan a estos equipos.
+                                Si no coinciden devuelve JSON con "error".
+                                Si coinciden devuelve JSON con "goles_local", "goles_visitante", "goleadores_local" y "goleadores_visitante".
+                                Devuelve ÚNICAMENTE el JSON válido.
+                                """
                                 imgs = [Image.open(f) for f in fotos]
-                                res = modelo_ia.generate_content([f"Resultado JSON {loc} vs {vis}", imgs[0]])
-                                d = json.loads(res.text.replace("```json","").replace("```","").strip())
-                                st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_local", 0)
-                                st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_visitante", 0)
-                                st.rerun()
-                            except: st.error("Error IA")
+                                # AHORA SÍ PASAMOS TODAS LAS IMÁGENES AL MISMO TIEMPO
+                                res = modelo_ia.generate_content([prompt_ia] + imgs)
+                                texto_json = res.text.replace("```json","").replace("```","").strip()
+                                d = json.loads(texto_json)
+                                
+                                if "error" in d:
+                                    st.error(f"❌ {d['error']}")
+                                else:
+                                    st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_local", 0)
+                                    st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_visitante", 0)
+                                    for i, jug in enumerate(d.get("goleadores_local", [])): st.session_state[f"jug_l_{i}_{st.session_state['fk']}"] = jug
+                                    for i, jug in enumerate(d.get("goleadores_visitante", [])): st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
+                                    st.success("✅ ¡Datos extraídos!"); st.rerun() 
+                            except Exception as e:
+                                # Ahora nos mostrará exactamente por qué falló
+                                st.error(f"❌ Error IA. Detalles: {e}")
+                    else:
+                        st.warning("⚠️ Falta subir foto o API Key no válida.")
 
             col1, col2 = st.columns(2)
             with col1: gl = st.number_input(f"Goles {loc}", min_value=0, key=f"gl_{st.session_state['fk']}")
             with col2: gv = st.number_input(f"Goles {vis}", min_value=0, key=f"gv_{st.session_state['fk']}")
 
-            if st.button("Guardar Resultado Oficial", type="primary"):
-                conn.update(worksheet="Partidos", data=pd.concat([df_partidos, pd.DataFrame([{"Torneo": torneo_actual, "Jornada": jorn, "Local": loc, "Goles_L": gl, "Goles_V": gv, "Visitante": vis, "WO": False}])], ignore_index=True))
-                st.session_state["fk"] += 1
-                st.session_state["partido_seleccionado_click"] = None
-                st.cache_data.clear()
-                st.success("✅ ¡Guardado!"); time.sleep(1); st.rerun()
+            wo = st.checkbox("¿Victoria por W.O.?", key=f"wo_{st.session_state['fk']}")
+            if wo:
+                ganador_wo = st.radio("Ganador W.O.:", [loc, vis], key=f"g_wo_{st.session_state['fk']}")
+                gl, gv = (3, 0) if ganador_wo == loc else (0, 3)
 
-# --- LAS OTRAS PESTAÑAS (IGUAL) ---
+            goleadores_data = []
+            if not wo:
+                c_g1, c_g2 = st.columns(2)
+                with c_g1:
+                    if gl > 0:
+                        for i in range(gl):
+                            j = st.text_input(f"Gol L {i+1}", key=f"jug_l_{i}_{st.session_state['fk']}")
+                            if j: goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": loc, "Jugador": j, "Goles": 1})
+                with c_g2:
+                    if gv > 0:
+                        for i in range(gv):
+                            j = st.text_input(f"Gol V {i+1}", key=f"jug_v_{i}_{st.session_state['fk']}")
+                            if j: goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": vis, "Jugador": j, "Goles": 1})
+
+            transferencia_data = None
+            if not wo:
+                ganador = loc if gl > gv else (vis if gv > gl else None)
+                if ganador:
+                    if st.checkbox(f"¿Refuerzo para {ganador}?", key=f"chk_t_{st.session_state['fk']}"):
+                        ct1, ct2 = st.columns(2)
+                        with ct1: toma = st.text_input("🟢 Toma:", key=f"toma_{st.session_state['fk']}")
+                        with ct2: cede = st.text_input("🔴 Cede:", value="J.G.", key=f"cede_{st.session_state['fk']}")
+                        if toma: transferencia_data = {"Torneo": torneo_actual, "Jornada": jorn, "Equipo": ganador, "Toma": toma, "Cede": cede if cede else "J.G."}
+
+            if st.button("Guardar Resultado Oficial", type="primary"):
+                with st.spinner("Guardando..."):
+                    conn.update(worksheet="Partidos", data=pd.concat([df_partidos, pd.DataFrame([{"Torneo": torneo_actual, "Jornada": jorn, "Local": loc, "Goles_L": gl, "Goles_V": gv, "Visitante": vis, "WO": wo}])], ignore_index=True))
+                    time.sleep(1)
+                    if goleadores_data: 
+                        conn.update(worksheet="Goleadores", data=pd.concat([df_goleadores, pd.DataFrame(goleadores_data)], ignore_index=True))
+                        time.sleep(1)
+                    if transferencia_data: 
+                        conn.update(worksheet="Transferencias", data=pd.concat([df_transferencias, pd.DataFrame([transferencia_data])], ignore_index=True))
+                    
+                    st.session_state["fk"] += 1
+                    st.session_state["partido_seleccionado_click"] = None
+                    st.cache_data.clear()
+                    st.success("✅ ¡Guardado!"); time.sleep(1); st.rerun()
+
+# --- TABLAS (IGUAL) ---
 with tab_tabla:
     partidos_torneo = df_partidos[df_partidos['Torneo'] == torneo_actual]
     if not partidos_torneo.empty:
