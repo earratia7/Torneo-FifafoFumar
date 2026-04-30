@@ -5,7 +5,6 @@ import google.generativeai as genai
 from PIL import Image
 import json
 import time
-import io
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
@@ -178,48 +177,53 @@ with tab_registro:
                 fotos = st.file_uploader("", type=["png","jpg","jpeg"], accept_multiple_files=True, key=f"f_{st.session_state['fk']}")
                 
                 if fotos:
-                    if st.button("👁️ Analizar Imágenes Rápido", type="secondary"):
+                    if st.button("👁️ Analizar Imágenes", type="secondary"):
                         if ia_lista:
-                            with st.spinner("Escaneando con IA de alta precisión..."):
+                            with st.spinner("IA analizando con máxima precisión. Por favor espera..."):
                                 try:
-                                    imgs_para_ia = []
-                                    for f in fotos:
-                                        img = Image.open(f)
-                                        img.thumbnail((1400, 1400))
-                                        buffer = io.BytesIO()
-                                        img.convert("RGB").save(buffer, format="JPEG", quality=85)
-                                        imgs_para_ia.append(Image.open(buffer))
+                                    # --- SIN COMPRESIÓN: MÁXIMA CALIDAD ORIGINAL ---
+                                    imgs_para_ia = [Image.open(f) for f in fotos]
 
+                                    # --- PROMPT SECUENCIAL ESTRICTO (TU LÓGICA EXACTA) ---
                                     prompt_ia = f"""
-                                    Eres un analista experto de EA FC.
-                                    FORMULARIO: LOCAL="{loc}", VISITANTE="{vis}".
+                                    Eres un analista experto de EA FC. PRIORIDAD: 100% Precisión absoluta.
+                                    En nuestro sistema los equipos a buscar son: "{loc}" y "{vis}".
                                     
-                                    PASO 1: LECTURA DE TV
-                                    - Identifica qué equipo está a la IZQUIERDA en la TV y cuántos goles tiene. Haz lo mismo con el de la DERECHA.
+                                    Ejecuta tu análisis SIGUIENDO ESTRICTAMENTE ESTE ORDEN (No te adelantes):
                                     
-                                    PASO 2: ANÁLISIS INDEPENDIENTE POR LADO (CRÍTICO)
-                                    - Analiza cada línea de minuto de forma independiente.
-                                    - Si hay un icono de BALÓN BLANCO a la IZQUIERDA de la línea central, anota el nombre del jugador para la izquierda.
-                                    - Si en ese MISMO minuto hay una tarjeta (amarilla/roja) del lado DERECHO, ignora al de la derecha, PERO NO IGNORES AL DE LA IZQUIERDA. Los lados son independientes.
-                                    - Una tarjeta de un jugador no invalida el gol del equipo contrario en el mismo minuto.
-                                    - Solo extrae nombres que tengan un balón a su lado directo.
+                                    --- FASE 1: EQUIPO DE LA IZQUIERDA ---
+                                    1. Enfócate SOLO en el lado IZQUIERDO de la pantalla.
+                                    2. ¿Cuál es el nombre del equipo a la IZQUIERDA en el marcador superior?
+                                    3. ¿Cuántos goles metió ese equipo según el número grande de la IZQUIERDA?
+                                    4. Ahora, mira debajo de ese equipo en la línea de tiempo (SOLO mitad izquierda).
+                                    5. Busca nombres que tengan un icono de BALÓN BLANCO (⚽). IGNORA tarjetas amarillas/rojas o flechas.
+                                    6. Haz una lista con esos nombres de la IZQUIERDA. Asegúrate de que el número de nombres coincida exactamente con los goles que encontraste en el paso 3.
                                     
-                                    PASO 3: AUDITORÍA
-                                    - Nombres extraídos de la Izquierda = Goles de la Izquierda. Haz lo mismo para la Derecha.
+                                    --- FASE 2: EQUIPO DE LA DERECHA ---
+                                    7. Ahora enfócate SOLO en el lado DERECHO de la pantalla.
+                                    8. ¿Cuál es el nombre del equipo a la DERECHA en el marcador superior?
+                                    9. ¿Cuántos goles metió ese equipo según el número grande de la DERECHA?
+                                    10. Mira debajo de ese equipo en la línea de tiempo (SOLO mitad derecha).
+                                    11. Busca nombres con BALÓN BLANCO (⚽). IGNORA tarjetas o flechas.
+                                    12. Haz una lista con esos nombres de la DERECHA. La cantidad debe coincidir con sus goles.
                                     
-                                    PASO 4: CRUCE DE DATOS
-                                    - Si "{loc}" está a la IZQUIERDA en la TV, asígnale los goles y goleadores de la Izquierda a las llaves "local".
+                                    --- FASE 3: CRUCE Y JSON ---
+                                    13. Compara el nombre del equipo de la FASE 1 con "{loc}" y "{vis}". 
+                                    - Si el equipo de la IZQUIERDA es "{loc}", pon sus goles en "goles_local" y su lista de nombres en "goleadores_local". 
+                                    - Si el equipo de la IZQUIERDA es "{vis}", pon sus goles en "goles_visitante" y su lista en "goleadores_visitante".
+                                    14. Haz lo mismo con los datos obtenidos en la FASE 2 para llenar los campos restantes.
                                     
-                                    DEVUELVE ÚNICAMENTE ESTE JSON VÁLIDO:
+                                    DEVUELVE ÚNICAMENTE ESTE JSON VÁLIDO (SIN EXPLICACIONES):
                                     {{
                                       "goles_local": numero,
                                       "goles_visitante": numero,
-                                      "goleadores_local": ["Nombre"],
-                                      "goleadores_visitante": ["Nombre"]
+                                      "goleadores_local": ["Nombre Exacto"],
+                                      "goleadores_visitante": ["Nombre Exacto"]
                                     }}
                                     """
                                     res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
                                     
+                                    # Cazador de JSON
                                     texto_puro = res.text
                                     inicio_json = texto_puro.find('{')
                                     fin_json = texto_puro.rfind('}')
@@ -238,11 +242,11 @@ with tab_registro:
                                             for i, jug in enumerate(d.get("goleadores_visitante", [])): 
                                                 st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
                                             
-                                            st.success("✅ ¡Datos extraídos correctamente!")
+                                            st.success("✅ ¡Datos extraídos con máxima precisión!")
                                             time.sleep(1)
                                             st.rerun() 
                                     else:
-                                        st.error(f"❌ La IA no devolvió los datos correctamente. Respuesta recibida: {texto_puro}")
+                                        st.error(f"❌ La IA no devolvió un JSON válido. Respuesta: {texto_puro}")
                                         
                                 except Exception as e:
                                     st.error(f"❌ Error al procesar: {e}")
@@ -291,7 +295,7 @@ with tab_registro:
                             transferencia_data = {"Torneo": torneo_actual, "Jornada": jorn, "Equipo": ganador, "Toma": toma, "Cede": cede if cede else "J.G."}
 
             if st.button("Guardar Resultado Oficial", type="primary"):
-                # --- NUEVA REGLA: CANDADO DE SEGURIDAD ---
+                # --- CANDADO DE SEGURIDAD (Se mantiene) ---
                 goles_totales_esperados = gl + gv if not wo else 0
                 if not wo and len(goleadores_data) < goles_totales_esperados:
                     st.error("⚠️ ¡Alto ahí! Te faltan goleadores por registrar. Por favor, llena todas las casillas vacías de goles antes de guardar.")
