@@ -111,7 +111,7 @@ st.title("🏆 Torneo FifafoFumar FC26")
 
 tab_registro, tab_tabla, tab_goleo, tab_transf, tab_config = st.tabs(["📝 Calendario", "📊 Posiciones", "⚽ Goleo", "🔄 Transferencias", "⚙️ Configuración"])
 
-# --- PESTAÑA DE CONFIGURACIÓN (RESTAURADA) ---
+# --- PESTAÑA DE CONFIGURACIÓN ---
 with tab_config:
     st.subheader("Alta de Torneos y Jugadores")
     col_t, col_e = st.columns(2)
@@ -178,25 +178,29 @@ with tab_registro:
             if fotos:
                 if st.button("👁️ Analizar Imágenes", type="secondary"):
                     if ia_lista:
-                        with st.spinner("IA analizando..."):
+                        with st.spinner("IA analizando eventos del partido..."):
                             try:
+                                # --- PROMPT DE IA CON REGLAS VISUALES ESTRICTAS ---
                                 prompt_ia = f"""
                                 Eres un árbitro experto de EA FC.
                                 El usuario seleccionó el partido: {loc} (Local) vs {vis} (Visitante).
                                 
                                 1. Verifica si las fotos corresponden a estos equipos. Si NO son, devuelve exactamente este JSON: {{"error": "Los equipos en la foto no coinciden."}}
-                                2. Si SÍ son, extrae el resultado y devuélvelo en este formato JSON EXACTO:
-                                {{
-                                  "goles_local": numero,
-                                  "goles_visitante": numero,
-                                  "goleadores_local": ["Nombre 1", "Nombre 2"],
-                                  "goleadores_visitante": []
-                                }}
+                                2. Si SÍ son, analiza la línea de tiempo (Eventos) de las fotos.
                                 
-                                REGLAS DE ORO:
-                                - La cantidad de nombres en la lista DEBE coincidir con el número de goles.
-                                - Si un jugador metió 2 o 3 goles, DEBES REPETIR su nombre en la lista las veces que anotó.
-                                - Solo devuelve el JSON, sin texto extra.
+                                REGLAS VISUALES OBLIGATORIAS:
+                                - ⚽ GOL: Solo cuenta como gol si hay un icono de un BALÓN BLANCO junto al nombre del jugador y el minuto.
+                                - 🟨 IGNORAR TARJETAS: Los rectángulos amarillos y rojos NO son goles. Por ejemplo, ignora a los jugadores con tarjetas.
+                                - ↕️ IGNORAR CAMBIOS: Las flechas verdes y rojas (sustituciones) NO son goles. Ignora esos nombres.
+                                
+                                FORMATO DE SALIDA EXACTO (Devuelve solo JSON válido):
+                                {{
+                                  "goles_local": (Total de balones del local),
+                                  "goles_visitante": (Total de balones del visitante),
+                                  "goleadores_local": ["NombreJugador1", "NombreJugador2"],
+                                  "goleadores_visitante": ["NombreJugador1"]
+                                }}
+                                *Nota: Repite el nombre del jugador en la lista si tiene múltiples iconos de balón.*
                                 """
                                 imgs = [Image.open(f) for f in fotos]
                                 res = modelo_ia.generate_content([prompt_ia] + imgs)
@@ -267,7 +271,7 @@ with tab_registro:
                     st.cache_data.clear()
                     st.success("✅ ¡Guardado!"); time.sleep(1); st.rerun()
 
-# --- TABLAS (RESTAURADAS COMPLETAS) ---
+# --- TABLAS RESTAURADAS COMPLETAS ---
 with tab_tabla:
     partidos_torneo = df_partidos[df_partidos['Torneo'] == torneo_actual]
     if not partidos_torneo.empty:
