@@ -180,38 +180,46 @@ with tab_registro:
                 if fotos:
                     if st.button("👁️ Analizar Imágenes Rápido", type="secondary"):
                         if ia_lista:
-                            with st.spinner("Analizando con cruce dinámico de equipos..."):
+                            with st.spinner("Escaneando con IA de alta precisión..."):
                                 try:
+                                    # --- EQUILIBRIO DE COMPRESIÓN: 1400px y Calidad 85% ---
+                                    # Esto permite que la IA pueda ver claramente los iconos de balón ⚽
                                     imgs_para_ia = []
                                     for f in fotos:
                                         img = Image.open(f)
-                                        img.thumbnail((1000, 1000))
+                                        img.thumbnail((1400, 1400))
                                         buffer = io.BytesIO()
-                                        img.convert("RGB").save(buffer, format="JPEG", quality=60)
+                                        img.convert("RGB").save(buffer, format="JPEG", quality=85)
                                         imgs_para_ia.append(Image.open(buffer))
 
-                                    # --- PROMPT MEJORADO PARA NO CRUZAR EQUIPOS Y EVITAR TARJETAS ---
+                                    # --- PROMPT REESTRUCTURADO PARA EVITAR ALUCINACIONES ---
                                     prompt_ia = f"""
-                                    Analista experto EA FC. 
-                                    En nuestro sistema los equipos se llaman así:
-                                    - Variable LOCAL = "{loc}"
-                                    - Variable VISITANTE = "{vis}"
+                                    Eres un analista experto de EA FC.
+                                    OBJETIVO: Extraer datos con precisión clínica.
+                                    FORMULARIO: LOCAL="{loc}", VISITANTE="{vis}".
                                     
-                                    Ejecuta este razonamiento ESTRICTO:
-                                    1. Identifica qué equipo de nuestro sistema está escrito a la IZQUIERDA en el marcador de la TV y cuál está a la DERECHA. No asumas posiciones. (Ejemplo: Si '{loc}' está a la derecha en la TV, sus goles serán los de la derecha).
-                                    2. Cuenta el número grande (marcador oficial) de la IZQUIERDA y de la DERECHA en la TV.
-                                    3. En la línea de tiempo vertical, extrae a los goleadores de la IZQ y de la DER buscando EXCLUSIVAMENTE iconos de BALÓN BLANCO.
-                                    4. IMPORTANTE: Ignora por completo a cualquier jugador con tarjeta amarilla/roja (rectángulo) o sustitución (flechas).
-                                    5. MAPEO FINAL CRÍTICO: 
-                                       - Si el equipo a la IZQUIERDA de la TV es "{loc}", entonces los goles y goleadores de la izquierda van a la llave "_local" del JSON.
-                                       - Si el equipo a la IZQUIERDA de la TV es "{vis}", entonces los goles de la izquierda van a "_visitante". Haz el mismo cruce lógico para la derecha.
+                                    PASO 1: LECTURA PURA DE LA TV (Sin asumir nada)
+                                    - Marcador Superior: ¿Qué equipo está a la IZQUIERDA en la TV y cuántos goles tiene? ¿Cuál está a la DERECHA y cuántos tiene?
                                     
-                                    Devuelve ÚNICAMENTE este JSON sin explicaciones:
+                                    PASO 2: EXTRACCIÓN DE GOLEADORES POR LADO
+                                    - Revisa los eventos de arriba hacia abajo.
+                                    - REGLA DE ORO: Solo los iconos de BALÓN DE FÚTBOL BLANCO son goles.
+                                    - IGNORA COMPLETAMENTE cualquier jugador que tenga tarjeta amarilla/roja o flechas de sustitución.
+                                    - Extrae los nombres de los jugadores que anotaron a la IZQUIERDA de la línea central.
+                                    - Extrae los nombres de los jugadores que anotaron a la DERECHA de la línea central.
+                                    
+                                    PASO 3: AUDITORÍA (¡CRÍTICO!)
+                                    - La cantidad de nombres en la lista de la Izquierda DEBE ser exactamente igual a los goles de la Izquierda. Si un jugador anotó 2 veces, anota su nombre 2 veces. Haz lo mismo para la Derecha.
+                                    
+                                    PASO 4: ASIGNACIÓN A NUESTRO FORMULARIO
+                                    - Si el equipo que jugó a la IZQUIERDA en la TV es "{loc}", asigna sus goles a "goles_local" y sus jugadores a "goleadores_local". Si es "{vis}", a la parte visitante. Haz el cruce con el equipo de la derecha.
+                                    
+                                    DEVUELVE ÚNICAMENTE ESTE JSON VÁLIDO:
                                     {{
-                                      "goles_local": numero_goles_del_equipo_{loc},
-                                      "goles_visitante": numero_goles_del_equipo_{vis},
-                                      "goleadores_local": ["Nombres del equipo {loc}"],
-                                      "goleadores_visitante": ["Nombres del equipo {vis}"]
+                                      "goles_local": numero,
+                                      "goles_visitante": numero,
+                                      "goleadores_local": ["Nombre Exacto"],
+                                      "goleadores_visitante": ["Nombre Exacto"]
                                     }}
                                     """
                                     res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
@@ -228,7 +236,7 @@ with tab_registro:
                                         for i, jug in enumerate(d.get("goleadores_visitante", [])): 
                                             st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
                                         
-                                        st.success("✅ ¡Datos extraídos y cruzados correctamente!")
+                                        st.success("✅ ¡Datos extraídos correctamente!")
                                         time.sleep(1)
                                         st.rerun() 
                                 except Exception as e:
