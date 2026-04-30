@@ -5,7 +5,6 @@ import google.generativeai as genai
 from PIL import Image
 import json
 import time
-import io
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
@@ -172,45 +171,38 @@ with tab_registro:
             p_data = next(p for p in pendientes if f"{p['Jornada']}: {p['Local']} vs {p['Visitante']}" == partido_sel)
             loc, vis, jorn = p_data['Local'], p_data['Visitante'], p_data['Jornada']
 
+            # --- NUEVO Y MÁS PRECISO PROMPT DE IA ---
             usar_ia = st.toggle("🤖 Activar Escáner de IA (Autocompletado)")
             if usar_ia:
                 st.markdown(f"###### 📸 Sube las fotos del marcador final")
                 fotos = st.file_uploader("", type=["png","jpg","jpeg"], accept_multiple_files=True, key=f"f_{st.session_state['fk']}")
                 
                 if fotos:
-                    if st.button("👁️ Analizar Imágenes Rápido", type="secondary"):
+                    if st.button("👁️ Analizar Imágenes", type="secondary"):
                         if ia_lista:
-                            with st.spinner("Analizando rápido con IA..."):
+                            with st.spinner("IA analizando eventos paso a paso..."):
                                 try:
-                                    # --- OPTIMIZACIÓN DE IMÁGENES ---
-                                    imgs_para_ia = []
-                                    for f in fotos:
-                                        img = Image.open(f)
-                                        img.thumbnail((1000, 1000))
-                                        buffer = io.BytesIO()
-                                        img.convert("RGB").save(buffer, format="JPEG", quality=60)
-                                        imgs_para_ia.append(Image.open(buffer))
-
-                                    # --- PROMPT SIMPLIFICADO Y DIRECTO PARA GANAR VELOCIDAD ---
                                     prompt_ia = f"""
-                                    Analista EA FC. LOCAL="{loc}", VISITANTE="{vis}".
+                                    Eres un analista experto de EA FC.
+                                    Nuestro formulario web tiene: LOCAL="{loc}", VISITANTE="{vis}".
                                     
-                                    Reglas directas:
-                                    1. MARCADOR: Identifica qué equipo está a la IZQUIERDA y cuál a la DERECHA en la TV. Usa sus números grandes como marcador oficial.
-                                    2. GOLES: Solo busca el icono de BALÓN BLANCO en la línea de tiempo. Si un nombre NO tiene un balón blanco a su lado, IGNÓRALO COMPLETAMENTE.
-                                    3. ASIGNACIÓN: Goles a la IZQ son del equipo izquierdo, goles a la DER son del equipo derecho.
-                                    4. REPETICIONES: Repite el nombre si tiene varios balones.
-                                    5. MAPEO: Cruza los datos. Asigna los goles al equipo de nuestro formulario ({loc} o {vis}) según de qué lado jugaron en la TV.
-                                    
+                                    PASO 1 (IMAGEN TV): Identifica en el marcador superior de la imagen cuál equipo es de la IZQUIERDA (Home) y cuál de la DERECHA (Away).
+                                    PASO 2 (EVENTOS): Escanea la línea de tiempo vertical. Goles válidos (balón⚽) a la izquierda de la línea son del equipo de la izquierda de la TV. Goles a la derecha son del equipo de la derecha de la TV.
+                                    PASO 3 (GOLEADORES): Genera dos listas completas de goleadores que coincidan con la puntuación final. Si el marcador es 5, debe haber 5 nombres, incluso si se repiten.
+                                    PASO 4 (CRUCE DE DATOS): Mapea las listas de la TV a nuestro formulario web:
+                                    - Goles del equipo que estaba a la DERECHA en la TV a 'goleadores_visitante' (Visitante).
+                                    - Goles del equipo que estaba a la IZQUIERDA en la TV a 'goleadores_local' (Local).
+                                    RECHAZA tarjetas y sustituciones.
                                     Devuelve ÚNICAMENTE este JSON:
                                     {{
-                                      "goles_local": numero,
-                                      "goles_visitante": numero,
-                                      "goleadores_local": ["Nombre"],
-                                      "goleadores_visitante": ["Nombre"]
+                                      "goles_local": 2,
+                                      "goles_visitante": 5,
+                                      "goleadores_local": ["Nombre1", "Nombre2"],
+                                      "goleadores_visitante": ["Nombre1", "Nombre2", ...]
                                     }}
                                     """
-                                    res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
+                                    imgs = [Image.open(f) for f in fotos]
+                                    res = modelo_ia.generate_content([prompt_ia] + imgs)
                                     texto_json = res.text.replace("```json","").replace("```","").strip()
                                     d = json.loads(texto_json)
                                     
@@ -224,7 +216,7 @@ with tab_registro:
                                         for i, jug in enumerate(d.get("goleadores_visitante", [])): 
                                             st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
                                         
-                                        st.success("✅ ¡Datos extraídos velozmente!")
+                                        st.success("✅ ¡Datos extraídos exitosamente!")
                                         time.sleep(1)
                                         st.rerun() 
                                 except Exception as e:
@@ -232,6 +224,7 @@ with tab_registro:
                         else:
                             st.warning("⚠️ La IA no está configurada.")
 
+            # --- FORMULARIO MANUAL ---
             st.write("") 
             col1, col2 = st.columns(2)
             with col1: 
