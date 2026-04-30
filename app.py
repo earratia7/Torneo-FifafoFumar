@@ -192,36 +192,34 @@ with tab_registro:
 
                                     prompt_ia = f"""
                                     Eres un analista experto de EA FC.
-                                    OBJETIVO: Extraer datos con precisión clínica.
                                     FORMULARIO: LOCAL="{loc}", VISITANTE="{vis}".
                                     
-                                    PASO 1: LECTURA PURA DE LA TV
-                                    - Marcador Superior: ¿Qué equipo está a la IZQUIERDA en la TV y cuántos goles tiene? ¿Cuál está a la DERECHA y cuántos tiene?
+                                    PASO 1: LECTURA DE TV
+                                    - Identifica qué equipo está a la IZQUIERDA en la TV y cuántos goles tiene. Haz lo mismo con el de la DERECHA.
                                     
-                                    PASO 2: EXTRACCIÓN DE GOLEADORES POR LADO
-                                    - Revisa los eventos de arriba hacia abajo.
-                                    - Solo los iconos de BALÓN DE FÚTBOL BLANCO son goles.
-                                    - IGNORA COMPLETAMENTE cualquier jugador que tenga tarjeta amarilla/roja o flechas de sustitución.
-                                    - Extrae nombres de la IZQUIERDA de la línea central.
-                                    - Extrae nombres de la DERECHA de la línea central.
+                                    PASO 2: ANÁLISIS INDEPENDIENTE POR LADO (CRÍTICO)
+                                    - Analiza cada línea de minuto de forma independiente.
+                                    - Si hay un icono de BALÓN BLANCO a la IZQUIERDA de la línea central, anota el nombre del jugador para la izquierda.
+                                    - Si en ese MISMO minuto hay una tarjeta (amarilla/roja) del lado DERECHO, ignora al de la derecha, PERO NO IGNORES AL DE LA IZQUIERDA. Los lados son independientes.
+                                    - Una tarjeta de un jugador no invalida el gol del equipo contrario en el mismo minuto.
+                                    - Solo extrae nombres que tengan un balón a su lado directo.
                                     
                                     PASO 3: AUDITORÍA
-                                    - Nombres Izquierda = Goles Izquierda. Repite nombres si anotaron más de 1 vez. Haz lo mismo para la Derecha.
+                                    - Nombres extraídos de la Izquierda = Goles de la Izquierda. Haz lo mismo para la Derecha.
                                     
-                                    PASO 4: ASIGNACIÓN FINAL
-                                    - Si el equipo a la IZQUIERDA en la TV es "{loc}", asigna sus goles a "goles_local" y jugadores a "goleadores_local". Si es "{vis}", asígnalos a la parte visitante.
+                                    PASO 4: CRUCE DE DATOS
+                                    - Si "{loc}" está a la IZQUIERDA en la TV, asígnale los goles y goleadores de la Izquierda a las llaves "local".
                                     
-                                    DEVUELVE ÚNICAMENTE ESTE JSON VÁLIDO (SIN TEXTO ANTES NI DESPUÉS):
+                                    DEVUELVE ÚNICAMENTE ESTE JSON VÁLIDO:
                                     {{
                                       "goles_local": numero,
                                       "goles_visitante": numero,
-                                      "goleadores_local": ["Nombre Exacto"],
-                                      "goleadores_visitante": ["Nombre Exacto"]
+                                      "goleadores_local": ["Nombre"],
+                                      "goleadores_visitante": ["Nombre"]
                                     }}
                                     """
                                     res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
                                     
-                                    # --- EL CAZADOR DE JSON (A PRUEBA DE ERRORES) ---
                                     texto_puro = res.text
                                     inicio_json = texto_puro.find('{')
                                     fin_json = texto_puro.rfind('}')
@@ -270,14 +268,14 @@ with tab_registro:
                     if gl > 0:
                         for i in range(gl):
                             j = st.text_input(f"Gol L {i+1}", key=f"jug_l_{i}_{st.session_state['fk']}")
-                            if j: 
-                                goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": loc, "Jugador": j, "Goles": 1})
+                            if j and j.strip(): 
+                                goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": loc, "Jugador": j.strip(), "Goles": 1})
                 with c_g2:
                     if gv > 0:
                         for i in range(gv):
                             j = st.text_input(f"Gol V {i+1}", key=f"jug_v_{i}_{st.session_state['fk']}")
-                            if j: 
-                                goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": vis, "Jugador": j, "Goles": 1})
+                            if j and j.strip(): 
+                                goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": vis, "Jugador": j.strip(), "Goles": 1})
 
             transferencia_data = None
             if not wo:
@@ -293,23 +291,28 @@ with tab_registro:
                             transferencia_data = {"Torneo": torneo_actual, "Jornada": jorn, "Equipo": ganador, "Toma": toma, "Cede": cede if cede else "J.G."}
 
             if st.button("Guardar Resultado Oficial", type="primary"):
-                with st.spinner("Guardando..."):
-                    conn.update(worksheet="Partidos", data=pd.concat([df_partidos, pd.DataFrame([{"Torneo": torneo_actual, "Jornada": jorn, "Local": loc, "Goles_L": gl, "Goles_V": gv, "Visitante": vis, "WO": wo}])], ignore_index=True))
-                    time.sleep(1)
-                    
-                    if goleadores_data: 
-                        conn.update(worksheet="Goleadores", data=pd.concat([df_goleadores, pd.DataFrame(goleadores_data)], ignore_index=True))
+                # --- NUEVA REGLA: CANDADO DE SEGURIDAD ---
+                goles_totales_esperados = gl + gv if not wo else 0
+                if not wo and len(goleadores_data) < goles_totales_esperados:
+                    st.error("⚠️ ¡Alto ahí! Te faltan goleadores por registrar. Por favor, llena todas las casillas vacías de goles antes de guardar.")
+                else:
+                    with st.spinner("Guardando..."):
+                        conn.update(worksheet="Partidos", data=pd.concat([df_partidos, pd.DataFrame([{"Torneo": torneo_actual, "Jornada": jorn, "Local": loc, "Goles_L": gl, "Goles_V": gv, "Visitante": vis, "WO": wo}])], ignore_index=True))
                         time.sleep(1)
                         
-                    if transferencia_data: 
-                        conn.update(worksheet="Transferencias", data=pd.concat([df_transferencias, pd.DataFrame([transferencia_data])], ignore_index=True))
-                    
-                    st.session_state["fk"] += 1
-                    st.session_state["partido_seleccionado_click"] = None
-                    st.cache_data.clear()
-                    st.success("✅ ¡Guardado!")
-                    time.sleep(1)
-                    st.rerun()
+                        if goleadores_data: 
+                            conn.update(worksheet="Goleadores", data=pd.concat([df_goleadores, pd.DataFrame(goleadores_data)], ignore_index=True))
+                            time.sleep(1)
+                            
+                        if transferencia_data: 
+                            conn.update(worksheet="Transferencias", data=pd.concat([df_transferencias, pd.DataFrame([transferencia_data])], ignore_index=True))
+                        
+                        st.session_state["fk"] += 1
+                        st.session_state["partido_seleccionado_click"] = None
+                        st.cache_data.clear()
+                        st.success("✅ ¡Guardado!")
+                        time.sleep(1)
+                        st.rerun()
 
 with tab_tabla:
     partidos_torneo = df_partidos[df_partidos['Torneo'] == torneo_actual]
