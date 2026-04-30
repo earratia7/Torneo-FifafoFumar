@@ -5,6 +5,7 @@ import google.generativeai as genai
 from PIL import Image
 import json
 import time
+import io
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
@@ -171,38 +172,49 @@ with tab_registro:
             p_data = next(p for p in pendientes if f"{p['Jornada']}: {p['Local']} vs {p['Visitante']}" == partido_sel)
             loc, vis, jorn = p_data['Local'], p_data['Visitante'], p_data['Jornada']
 
-            # --- NUEVO Y MÁS PRECISO PROMPT DE IA ---
             usar_ia = st.toggle("🤖 Activar Escáner de IA (Autocompletado)")
             if usar_ia:
                 st.markdown(f"###### 📸 Sube las fotos del marcador final")
                 fotos = st.file_uploader("", type=["png","jpg","jpeg"], accept_multiple_files=True, key=f"f_{st.session_state['fk']}")
                 
                 if fotos:
-                    if st.button("👁️ Analizar Imágenes", type="secondary"):
+                    if st.button("👁️ Analizar Imágenes Rápido", type="secondary"):
                         if ia_lista:
-                            with st.spinner("IA analizando eventos paso a paso..."):
+                            with st.spinner("Analizando con cruce dinámico de equipos..."):
                                 try:
+                                    imgs_para_ia = []
+                                    for f in fotos:
+                                        img = Image.open(f)
+                                        img.thumbnail((1000, 1000))
+                                        buffer = io.BytesIO()
+                                        img.convert("RGB").save(buffer, format="JPEG", quality=60)
+                                        imgs_para_ia.append(Image.open(buffer))
+
+                                    # --- PROMPT MEJORADO PARA NO CRUZAR EQUIPOS Y EVITAR TARJETAS ---
                                     prompt_ia = f"""
-                                    Eres un analista experto de EA FC.
-                                    Nuestro formulario web tiene: LOCAL="{loc}", VISITANTE="{vis}".
+                                    Analista experto EA FC. 
+                                    En nuestro sistema los equipos se llaman así:
+                                    - Variable LOCAL = "{loc}"
+                                    - Variable VISITANTE = "{vis}"
                                     
-                                    PASO 1 (IMAGEN TV): Identifica en el marcador superior de la imagen cuál equipo es de la IZQUIERDA (Home) y cuál de la DERECHA (Away).
-                                    PASO 2 (EVENTOS): Escanea la línea de tiempo vertical. Goles válidos (balón⚽) a la izquierda de la línea son del equipo de la izquierda de la TV. Goles a la derecha son del equipo de la derecha de la TV.
-                                    PASO 3 (GOLEADORES): Genera dos listas completas de goleadores que coincidan con la puntuación final. Si el marcador es 5, debe haber 5 nombres, incluso si se repiten.
-                                    PASO 4 (CRUCE DE DATOS): Mapea las listas de la TV a nuestro formulario web:
-                                    - Goles del equipo que estaba a la DERECHA en la TV a 'goleadores_visitante' (Visitante).
-                                    - Goles del equipo que estaba a la IZQUIERDA en la TV a 'goleadores_local' (Local).
-                                    RECHAZA tarjetas y sustituciones.
-                                    Devuelve ÚNICAMENTE este JSON:
+                                    Ejecuta este razonamiento ESTRICTO:
+                                    1. Identifica qué equipo de nuestro sistema está escrito a la IZQUIERDA en el marcador de la TV y cuál está a la DERECHA. No asumas posiciones. (Ejemplo: Si '{loc}' está a la derecha en la TV, sus goles serán los de la derecha).
+                                    2. Cuenta el número grande (marcador oficial) de la IZQUIERDA y de la DERECHA en la TV.
+                                    3. En la línea de tiempo vertical, extrae a los goleadores de la IZQ y de la DER buscando EXCLUSIVAMENTE iconos de BALÓN BLANCO.
+                                    4. IMPORTANTE: Ignora por completo a cualquier jugador con tarjeta amarilla/roja (rectángulo) o sustitución (flechas).
+                                    5. MAPEO FINAL CRÍTICO: 
+                                       - Si el equipo a la IZQUIERDA de la TV es "{loc}", entonces los goles y goleadores de la izquierda van a la llave "_local" del JSON.
+                                       - Si el equipo a la IZQUIERDA de la TV es "{vis}", entonces los goles de la izquierda van a "_visitante". Haz el mismo cruce lógico para la derecha.
+                                    
+                                    Devuelve ÚNICAMENTE este JSON sin explicaciones:
                                     {{
-                                      "goles_local": 2,
-                                      "goles_visitante": 5,
-                                      "goleadores_local": ["Nombre1", "Nombre2"],
-                                      "goleadores_visitante": ["Nombre1", "Nombre2", ...]
+                                      "goles_local": numero_goles_del_equipo_{loc},
+                                      "goles_visitante": numero_goles_del_equipo_{vis},
+                                      "goleadores_local": ["Nombres del equipo {loc}"],
+                                      "goleadores_visitante": ["Nombres del equipo {vis}"]
                                     }}
                                     """
-                                    imgs = [Image.open(f) for f in fotos]
-                                    res = modelo_ia.generate_content([prompt_ia] + imgs)
+                                    res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
                                     texto_json = res.text.replace("```json","").replace("```","").strip()
                                     d = json.loads(texto_json)
                                     
@@ -216,7 +228,7 @@ with tab_registro:
                                         for i, jug in enumerate(d.get("goleadores_visitante", [])): 
                                             st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
                                         
-                                        st.success("✅ ¡Datos extraídos exitosamente!")
+                                        st.success("✅ ¡Datos extraídos y cruzados correctamente!")
                                         time.sleep(1)
                                         st.rerun() 
                                 except Exception as e:
@@ -224,7 +236,6 @@ with tab_registro:
                         else:
                             st.warning("⚠️ La IA no está configurada.")
 
-            # --- FORMULARIO MANUAL ---
             st.write("") 
             col1, col2 = st.columns(2)
             with col1: 
