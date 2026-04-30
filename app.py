@@ -176,49 +176,54 @@ with tab_registro:
                 fotos = st.file_uploader("", type=["png","jpg","jpeg"], accept_multiple_files=True, key=f"f_{st.session_state['fk']}")
                 
                 if fotos:
-                    if st.button("👁️ Analizar Imágenes", type="secondary"):
+                    if st.button("👁️ Analizar Imágenes Rápido", type="secondary"):
                         if ia_lista:
-                            with st.spinner("IA analizando eventos paso a paso..."):
+                            with st.spinner("Optimizando fotos y analizando..."):
                                 try:
-                                    # --- PROMPT DE IA CON ALGORITMO PASO A PASO ---
+                                    # --- 🚀 OPTIMIZACIÓN DE VELOCIDAD: REDIMENSIONAR IMÁGENES ---
+                                    imgs_procesadas = []
+                                    for f in fotos:
+                                        img = Image.open(f)
+                                        # Reducimos la resolución a un máximo de 1600px.
+                                        # Esto reduce el peso drásticamente sin perder legibilidad para la IA.
+                                        img.thumbnail((1600, 1600)) 
+                                        imgs_procesadas.append(img)
+
+                                    # --- PROMPT IA REFORZADO (A PRUEBA DE TARJETAS Y OMISIONES) ---
                                     prompt_ia = f"""
                                     Eres un analista experto de EA FC.
-                                    En nuestro formulario web: EL LOCAL ES "{loc}" y EL VISITANTE ES "{vis}".
+                                    FORMULARIO: LOCAL="{loc}", VISITANTE="{vis}".
                                     
                                     Ejecuta ESTRICTAMENTE este algoritmo paso a paso:
                                     
-                                    PASO 1 (MARCADOR SUPERIOR):
-                                    Mira el marcador grande arriba en la TV. Hay un equipo a la IZQUIERDA y otro a la DERECHA.
-                                    ¿Cuál de los dos equipos de nuestro formulario ({loc} o {vis}) está a la IZQUIERDA en la TV?
-                                    ¿Cuál está a la DERECHA en la TV?
-                                    Anótalo mentalmente para no cruzarlos.
+                                    PASO 1 (LADOS):
+                                    Mira el MARCADOR SUPERIOR. Identifica qué equipo está a la IZQUIERDA y cuál a la DERECHA.
                                     
-                                    PASO 2 (GOLEADORES IZQUIERDA):
-                                    Revisa la línea de tiempo vertical. Busca a los jugadores que aparecen a la IZQUIERDA de la línea central.
-                                    SOLO selecciona a los que tengan un icono de BALÓN BLANCO. 
-                                    ¡RECHAZA INMEDIATAMENTE a los que tengan rectángulos (tarjetas) o flechas (cambios)!
-                                    Asigna estos jugadores al equipo que identificaste a la IZQUIERDA en el Paso 1.
+                                    PASO 2 (ESCANEO DE ARRIBA HACIA ABAJO - ¡NO TE SALTES A NADIE!):
+                                    Lee CADA UNO de los eventos de la línea de tiempo vertical de ARRIBA hacia ABAJO.
+                                    Analiza a CADA JUGADOR con esta regla INFALIBLE:
+                                    - ¿Tiene un CUADRADO/RECTÁNGULO AMARILLO O ROJO al lado de su nombre o minuto? -> ES UNA TARJETA. ¡IGNÓRALO POR COMPLETO! ¡NO ES GOL!
+                                    - ¿Tiene FLECHAS ROJAS/VERDES? -> ES UN CAMBIO. ¡IGNÓRALO!
+                                    - ¿Tiene EXCLUSIVAMENTE un ICONO DE BALÓN BLANCO? -> ¡SÍ ES GOL! Anota su nombre.
                                     
-                                    PASO 3 (GOLEADORES DERECHA):
-                                    Busca a los jugadores que aparecen a la DERECHA de la línea central.
-                                    SOLO selecciona a los que tengan un icono de BALÓN BLANCO.
-                                    ¡RECHAZA INMEDIATAMENTE a los que tengan tarjetas o cambios! (Si ves una tarjeta amarilla, NO ES GOL).
-                                    Asigna estos jugadores al equipo que identificaste a la DERECHA en el Paso 1.
+                                    PASO 3 (ASIGNACIÓN):
+                                    - Los goles válidos del lado IZQUIERDO, asígnalos al equipo de la IZQUIERDA.
+                                    - Los goles válidos del lado DERECHO, asígnalos al equipo de la DERECHA.
+                                    - Si un jugador metió múltiples goles (múltiples iconos de balón), REPITE su nombre.
                                     
-                                    PASO 4 (MAPEADO FINAL AL JSON):
-                                    Ahora debes generar el JSON llenando la información correspondiente a "{loc}" y "{vis}" basándote en los pasos anteriores.
-                                    (Asegúrate de repetir el nombre de un jugador si anotó múltiples goles).
+                                    PASO 4 (MAPEADO FINAL):
+                                    Cruza los datos con nuestro formulario. Si {loc} era el de la derecha, ponle los goles de la derecha.
                                     
-                                    FORMATO EXACTO (Devuelve ÚNICAMENTE el JSON, sin texto markdown):
+                                    FORMATO EXACTO (Devuelve ÚNICAMENTE JSON válido, sin texto extra):
                                     {{
-                                      "goles_local": numero_total_goles_de_LOCAL,
-                                      "goles_visitante": numero_total_goles_de_VISITANTE,
-                                      "goleadores_local": ["Nombre", "Nombre"],
-                                      "goleadores_visitante": ["Nombre"]
+                                      "goles_local": numero_total_goles_LOCAL_segun_marcador_superior,
+                                      "goles_visitante": numero_total_goles_VISITANTE_segun_marcador_superior,
+                                      "goleadores_local": ["Jugador1", "Jugador2"],
+                                      "goleadores_visitante": ["Jugador1"]
                                     }}
                                     """
-                                    imgs = [Image.open(f) for f in fotos]
-                                    res = modelo_ia.generate_content([prompt_ia] + imgs)
+                                    # Usamos las imágenes ya aligeradas
+                                    res = modelo_ia.generate_content([prompt_ia] + imgs_procesadas)
                                     texto_json = res.text.replace("```json","").replace("```","").strip()
                                     d = json.loads(texto_json)
                                     
@@ -229,7 +234,7 @@ with tab_registro:
                                         st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_visitante", 0)
                                         for i, jug in enumerate(d.get("goleadores_local", [])): st.session_state[f"jug_l_{i}_{st.session_state['fk']}"] = jug
                                         for i, jug in enumerate(d.get("goleadores_visitante", [])): st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
-                                        st.success("✅ ¡Datos extraídos correctamente!")
+                                        st.success("✅ ¡Datos extraídos velozmente!")
                                         time.sleep(1)
                                         st.rerun() 
                                 except Exception as e:
