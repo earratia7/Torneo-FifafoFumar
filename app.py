@@ -180,38 +180,34 @@ with tab_registro:
                 if fotos:
                     if st.button("👁️ Analizar Imágenes Rápido", type="secondary"):
                         if ia_lista:
-                            with st.spinner("Optimizando fotos y analizando..."):
+                            with st.spinner("Analizando rápido con IA..."):
                                 try:
-                                    # --- OPTIMIZACIÓN EXTREMA DE IMÁGENES ---
+                                    # --- OPTIMIZACIÓN DE IMÁGENES ---
                                     imgs_para_ia = []
                                     for f in fotos:
                                         img = Image.open(f)
-                                        # Redimensionar a 1000px
                                         img.thumbnail((1000, 1000))
-                                        # Convertir a JPEG en memoria con calidad 60%
                                         buffer = io.BytesIO()
                                         img.convert("RGB").save(buffer, format="JPEG", quality=60)
                                         imgs_para_ia.append(Image.open(buffer))
 
+                                    # --- PROMPT SIMPLIFICADO Y DIRECTO PARA GANAR VELOCIDAD ---
                                     prompt_ia = f"""
-                                    Analista experto EA FC.
-                                    FORMULARIO: LOCAL="{loc}", VISITANTE="{vis}".
+                                    Analista EA FC. LOCAL="{loc}", VISITANTE="{vis}".
                                     
-                                    PASO 1: Mira el MARCADOR SUPERIOR. Identifica qué equipo está a la IZQUIERDA y cuál a la DERECHA.
-                                    PASO 2: Lee CADA evento de la línea de tiempo de ARRIBA hacia ABAJO.
-                                    PASO 3: ¿Tiene CUADRADO/RECTÁNGULO AMARILLO/ROJO? -> ES TARJETA. ¡IGNÓRALO!
-                                    PASO 4: ¿Tiene FLECHAS ROJAS/VERDES? -> ES CAMBIO. ¡IGNÓRALO!
-                                    PASO 5: ¿Tiene ICONO DE BALÓN BLANCO? -> ¡SÍ ES GOL! Anota su nombre.
-                                    PASO 6: Asigna goles del lado IZQUIERDO al equipo de la IZQUIERDA en la TV. Haz lo mismo con los de la DERECHA.
-                                    PASO 7: Si un jugador tiene múltiples balones, REPITE su nombre.
-                                    PASO 8: Cruza los datos. Si {loc} era el de la derecha, ponle los goles de la derecha.
+                                    Reglas directas:
+                                    1. MARCADOR: Identifica qué equipo está a la IZQUIERDA y cuál a la DERECHA en la TV. Usa sus números grandes como marcador oficial.
+                                    2. GOLES: Solo busca el icono de BALÓN BLANCO en la línea de tiempo. Si un nombre NO tiene un balón blanco a su lado, IGNÓRALO COMPLETAMENTE.
+                                    3. ASIGNACIÓN: Goles a la IZQ son del equipo izquierdo, goles a la DER son del equipo derecho.
+                                    4. REPETICIONES: Repite el nombre si tiene varios balones.
+                                    5. MAPEO: Cruza los datos. Asigna los goles al equipo de nuestro formulario ({loc} o {vis}) según de qué lado jugaron en la TV.
                                     
                                     Devuelve ÚNICAMENTE este JSON:
                                     {{
-                                      "goles_local": numero_total_goles_LOCAL_segun_marcador_superior,
-                                      "goles_visitante": numero_total_goles_VISITANTE_segun_marcador_superior,
-                                      "goleadores_local": ["NombreJugador1", "NombreJugador2"],
-                                      "goleadores_visitante": ["NombreJugador1"]
+                                      "goles_local": numero,
+                                      "goles_visitante": numero,
+                                      "goleadores_local": ["Nombre"],
+                                      "goleadores_visitante": ["Nombre"]
                                     }}
                                     """
                                     res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
@@ -318,4 +314,4 @@ with tab_goleo:
 
 with tab_transf:
     t_t = df_transferencias[df_transferencias['Torneo'] == torneo_actual]
-    if not t_t.empty: st.dataframe(t_t[["Jornada", "Equipo", "Toma", "Cede"]], use_container_width=True)
+    if not t_t.empty: st.dataframe(t_t[["Jornada", "Equipo", "Toma", "Cede"]], use_container_width=True)git add .
