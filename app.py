@@ -182,8 +182,6 @@ with tab_registro:
                         if ia_lista:
                             with st.spinner("Escaneando con IA de alta precisión..."):
                                 try:
-                                    # --- EQUILIBRIO DE COMPRESIÓN: 1400px y Calidad 85% ---
-                                    # Esto permite que la IA pueda ver claramente los iconos de balón ⚽
                                     imgs_para_ia = []
                                     for f in fotos:
                                         img = Image.open(f)
@@ -192,29 +190,28 @@ with tab_registro:
                                         img.convert("RGB").save(buffer, format="JPEG", quality=85)
                                         imgs_para_ia.append(Image.open(buffer))
 
-                                    # --- PROMPT REESTRUCTURADO PARA EVITAR ALUCINACIONES ---
                                     prompt_ia = f"""
                                     Eres un analista experto de EA FC.
                                     OBJETIVO: Extraer datos con precisión clínica.
                                     FORMULARIO: LOCAL="{loc}", VISITANTE="{vis}".
                                     
-                                    PASO 1: LECTURA PURA DE LA TV (Sin asumir nada)
+                                    PASO 1: LECTURA PURA DE LA TV
                                     - Marcador Superior: ¿Qué equipo está a la IZQUIERDA en la TV y cuántos goles tiene? ¿Cuál está a la DERECHA y cuántos tiene?
                                     
                                     PASO 2: EXTRACCIÓN DE GOLEADORES POR LADO
                                     - Revisa los eventos de arriba hacia abajo.
-                                    - REGLA DE ORO: Solo los iconos de BALÓN DE FÚTBOL BLANCO son goles.
+                                    - Solo los iconos de BALÓN DE FÚTBOL BLANCO son goles.
                                     - IGNORA COMPLETAMENTE cualquier jugador que tenga tarjeta amarilla/roja o flechas de sustitución.
-                                    - Extrae los nombres de los jugadores que anotaron a la IZQUIERDA de la línea central.
-                                    - Extrae los nombres de los jugadores que anotaron a la DERECHA de la línea central.
+                                    - Extrae nombres de la IZQUIERDA de la línea central.
+                                    - Extrae nombres de la DERECHA de la línea central.
                                     
-                                    PASO 3: AUDITORÍA (¡CRÍTICO!)
-                                    - La cantidad de nombres en la lista de la Izquierda DEBE ser exactamente igual a los goles de la Izquierda. Si un jugador anotó 2 veces, anota su nombre 2 veces. Haz lo mismo para la Derecha.
+                                    PASO 3: AUDITORÍA
+                                    - Nombres Izquierda = Goles Izquierda. Repite nombres si anotaron más de 1 vez. Haz lo mismo para la Derecha.
                                     
-                                    PASO 4: ASIGNACIÓN A NUESTRO FORMULARIO
-                                    - Si el equipo que jugó a la IZQUIERDA en la TV es "{loc}", asigna sus goles a "goles_local" y sus jugadores a "goleadores_local". Si es "{vis}", a la parte visitante. Haz el cruce con el equipo de la derecha.
+                                    PASO 4: ASIGNACIÓN FINAL
+                                    - Si el equipo a la IZQUIERDA en la TV es "{loc}", asigna sus goles a "goles_local" y jugadores a "goleadores_local". Si es "{vis}", asígnalos a la parte visitante.
                                     
-                                    DEVUELVE ÚNICAMENTE ESTE JSON VÁLIDO:
+                                    DEVUELVE ÚNICAMENTE ESTE JSON VÁLIDO (SIN TEXTO ANTES NI DESPUÉS):
                                     {{
                                       "goles_local": numero,
                                       "goles_visitante": numero,
@@ -223,22 +220,32 @@ with tab_registro:
                                     }}
                                     """
                                     res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
-                                    texto_json = res.text.replace("```json","").replace("```","").strip()
-                                    d = json.loads(texto_json)
                                     
-                                    if "error" in d:
-                                        st.error(f"❌ {d['error']}")
-                                    else:
-                                        st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_local", 0)
-                                        st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_visitante", 0)
-                                        for i, jug in enumerate(d.get("goleadores_local", [])): 
-                                            st.session_state[f"jug_l_{i}_{st.session_state['fk']}"] = jug
-                                        for i, jug in enumerate(d.get("goleadores_visitante", [])): 
-                                            st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
+                                    # --- EL CAZADOR DE JSON (A PRUEBA DE ERRORES) ---
+                                    texto_puro = res.text
+                                    inicio_json = texto_puro.find('{')
+                                    fin_json = texto_puro.rfind('}')
+                                    
+                                    if inicio_json != -1 and fin_json != -1:
+                                        texto_json = texto_puro[inicio_json:fin_json+1]
+                                        d = json.loads(texto_json)
                                         
-                                        st.success("✅ ¡Datos extraídos correctamente!")
-                                        time.sleep(1)
-                                        st.rerun() 
+                                        if "error" in d:
+                                            st.error(f"❌ {d['error']}")
+                                        else:
+                                            st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_local", 0)
+                                            st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_visitante", 0)
+                                            for i, jug in enumerate(d.get("goleadores_local", [])): 
+                                                st.session_state[f"jug_l_{i}_{st.session_state['fk']}"] = jug
+                                            for i, jug in enumerate(d.get("goleadores_visitante", [])): 
+                                                st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
+                                            
+                                            st.success("✅ ¡Datos extraídos correctamente!")
+                                            time.sleep(1)
+                                            st.rerun() 
+                                    else:
+                                        st.error(f"❌ La IA no devolvió los datos correctamente. Respuesta recibida: {texto_puro}")
+                                        
                                 except Exception as e:
                                     st.error(f"❌ Error al procesar: {e}")
                         else:
