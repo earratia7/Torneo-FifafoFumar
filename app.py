@@ -5,6 +5,7 @@ import google.generativeai as genai
 from PIL import Image
 import json
 import time
+import io
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
@@ -120,7 +121,8 @@ with tab_config:
         if nuevo_torneo and nuevo_equipo:
             conn.update(worksheet="Equipos", data=pd.concat([df_equipos, pd.DataFrame([{"Torneo": nuevo_torneo, "Equipo": nuevo_equipo}])], ignore_index=True))
             st.cache_data.clear()
-            st.success("✅ Registrado exitosamente."); st.rerun()
+            st.success("✅ Registrado exitosamente.")
+            st.rerun()
 
 with tab_registro:
     if len(eq_activos) == 6:
@@ -180,50 +182,39 @@ with tab_registro:
                         if ia_lista:
                             with st.spinner("Optimizando fotos y analizando..."):
                                 try:
-                                    # --- 🚀 OPTIMIZACIÓN DE VELOCIDAD: REDIMENSIONAR IMÁGENES ---
-                                    imgs_procesadas = []
+                                    # --- OPTIMIZACIÓN EXTREMA DE IMÁGENES ---
+                                    imgs_para_ia = []
                                     for f in fotos:
                                         img = Image.open(f)
-                                        # Reducimos la resolución a un máximo de 1600px.
-                                        # Esto reduce el peso drásticamente sin perder legibilidad para la IA.
-                                        img.thumbnail((1600, 1600)) 
-                                        imgs_procesadas.append(img)
+                                        # Redimensionar a 1000px
+                                        img.thumbnail((1000, 1000))
+                                        # Convertir a JPEG en memoria con calidad 60%
+                                        buffer = io.BytesIO()
+                                        img.convert("RGB").save(buffer, format="JPEG", quality=60)
+                                        imgs_para_ia.append(Image.open(buffer))
 
-                                    # --- PROMPT IA REFORZADO (A PRUEBA DE TARJETAS Y OMISIONES) ---
                                     prompt_ia = f"""
-                                    Eres un analista experto de EA FC.
+                                    Analista experto EA FC.
                                     FORMULARIO: LOCAL="{loc}", VISITANTE="{vis}".
                                     
-                                    Ejecuta ESTRICTAMENTE este algoritmo paso a paso:
+                                    PASO 1: Mira el MARCADOR SUPERIOR. Identifica qué equipo está a la IZQUIERDA y cuál a la DERECHA.
+                                    PASO 2: Lee CADA evento de la línea de tiempo de ARRIBA hacia ABAJO.
+                                    PASO 3: ¿Tiene CUADRADO/RECTÁNGULO AMARILLO/ROJO? -> ES TARJETA. ¡IGNÓRALO!
+                                    PASO 4: ¿Tiene FLECHAS ROJAS/VERDES? -> ES CAMBIO. ¡IGNÓRALO!
+                                    PASO 5: ¿Tiene ICONO DE BALÓN BLANCO? -> ¡SÍ ES GOL! Anota su nombre.
+                                    PASO 6: Asigna goles del lado IZQUIERDO al equipo de la IZQUIERDA en la TV. Haz lo mismo con los de la DERECHA.
+                                    PASO 7: Si un jugador tiene múltiples balones, REPITE su nombre.
+                                    PASO 8: Cruza los datos. Si {loc} era el de la derecha, ponle los goles de la derecha.
                                     
-                                    PASO 1 (LADOS):
-                                    Mira el MARCADOR SUPERIOR. Identifica qué equipo está a la IZQUIERDA y cuál a la DERECHA.
-                                    
-                                    PASO 2 (ESCANEO DE ARRIBA HACIA ABAJO - ¡NO TE SALTES A NADIE!):
-                                    Lee CADA UNO de los eventos de la línea de tiempo vertical de ARRIBA hacia ABAJO.
-                                    Analiza a CADA JUGADOR con esta regla INFALIBLE:
-                                    - ¿Tiene un CUADRADO/RECTÁNGULO AMARILLO O ROJO al lado de su nombre o minuto? -> ES UNA TARJETA. ¡IGNÓRALO POR COMPLETO! ¡NO ES GOL!
-                                    - ¿Tiene FLECHAS ROJAS/VERDES? -> ES UN CAMBIO. ¡IGNÓRALO!
-                                    - ¿Tiene EXCLUSIVAMENTE un ICONO DE BALÓN BLANCO? -> ¡SÍ ES GOL! Anota su nombre.
-                                    
-                                    PASO 3 (ASIGNACIÓN):
-                                    - Los goles válidos del lado IZQUIERDO, asígnalos al equipo de la IZQUIERDA.
-                                    - Los goles válidos del lado DERECHO, asígnalos al equipo de la DERECHA.
-                                    - Si un jugador metió múltiples goles (múltiples iconos de balón), REPITE su nombre.
-                                    
-                                    PASO 4 (MAPEADO FINAL):
-                                    Cruza los datos con nuestro formulario. Si {loc} era el de la derecha, ponle los goles de la derecha.
-                                    
-                                    FORMATO EXACTO (Devuelve ÚNICAMENTE JSON válido, sin texto extra):
+                                    Devuelve ÚNICAMENTE este JSON:
                                     {{
                                       "goles_local": numero_total_goles_LOCAL_segun_marcador_superior,
                                       "goles_visitante": numero_total_goles_VISITANTE_segun_marcador_superior,
-                                      "goleadores_local": ["Jugador1", "Jugador2"],
-                                      "goleadores_visitante": ["Jugador1"]
+                                      "goleadores_local": ["NombreJugador1", "NombreJugador2"],
+                                      "goleadores_visitante": ["NombreJugador1"]
                                     }}
                                     """
-                                    # Usamos las imágenes ya aligeradas
-                                    res = modelo_ia.generate_content([prompt_ia] + imgs_procesadas)
+                                    res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
                                     texto_json = res.text.replace("```json","").replace("```","").strip()
                                     d = json.loads(texto_json)
                                     
@@ -232,8 +223,11 @@ with tab_registro:
                                     else:
                                         st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_local", 0)
                                         st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_visitante", 0)
-                                        for i, jug in enumerate(d.get("goleadores_local", [])): st.session_state[f"jug_l_{i}_{st.session_state['fk']}"] = jug
-                                        for i, jug in enumerate(d.get("goleadores_visitante", [])): st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
+                                        for i, jug in enumerate(d.get("goleadores_local", [])): 
+                                            st.session_state[f"jug_l_{i}_{st.session_state['fk']}"] = jug
+                                        for i, jug in enumerate(d.get("goleadores_visitante", [])): 
+                                            st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
+                                        
                                         st.success("✅ ¡Datos extraídos velozmente!")
                                         time.sleep(1)
                                         st.rerun() 
@@ -244,8 +238,10 @@ with tab_registro:
 
             st.write("") 
             col1, col2 = st.columns(2)
-            with col1: gl = st.number_input(f"Goles {loc}", min_value=0, key=f"gl_{st.session_state['fk']}")
-            with col2: gv = st.number_input(f"Goles {vis}", min_value=0, key=f"gv_{st.session_state['fk']}")
+            with col1: 
+                gl = st.number_input(f"Goles {loc}", min_value=0, key=f"gl_{st.session_state['fk']}")
+            with col2: 
+                gv = st.number_input(f"Goles {vis}", min_value=0, key=f"gv_{st.session_state['fk']}")
 
             wo = st.checkbox("¿Victoria por W.O.?", key=f"wo_{st.session_state['fk']}")
             if wo:
@@ -259,12 +255,14 @@ with tab_registro:
                     if gl > 0:
                         for i in range(gl):
                             j = st.text_input(f"Gol L {i+1}", key=f"jug_l_{i}_{st.session_state['fk']}")
-                            if j: goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": loc, "Jugador": j, "Goles": 1})
+                            if j: 
+                                goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": loc, "Jugador": j, "Goles": 1})
                 with c_g2:
                     if gv > 0:
                         for i in range(gv):
                             j = st.text_input(f"Gol V {i+1}", key=f"jug_v_{i}_{st.session_state['fk']}")
-                            if j: goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": vis, "Jugador": j, "Goles": 1})
+                            if j: 
+                                goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": vis, "Jugador": j, "Goles": 1})
 
             transferencia_data = None
             if not wo:
@@ -272,24 +270,31 @@ with tab_registro:
                 if ganador:
                     if st.checkbox(f"¿Refuerzo para {ganador}?", key=f"chk_t_{st.session_state['fk']}"):
                         ct1, ct2 = st.columns(2)
-                        with ct1: toma = st.text_input("🟢 Toma:", key=f"toma_{st.session_state['fk']}")
-                        with ct2: cede = st.text_input("🔴 Cede:", value="J.G.", key=f"cede_{st.session_state['fk']}")
-                        if toma: transferencia_data = {"Torneo": torneo_actual, "Jornada": jorn, "Equipo": ganador, "Toma": toma, "Cede": cede if cede else "J.G."}
+                        with ct1: 
+                            toma = st.text_input("🟢 Toma:", key=f"toma_{st.session_state['fk']}")
+                        with ct2: 
+                            cede = st.text_input("🔴 Cede:", value="J.G.", key=f"cede_{st.session_state['fk']}")
+                        if toma: 
+                            transferencia_data = {"Torneo": torneo_actual, "Jornada": jorn, "Equipo": ganador, "Toma": toma, "Cede": cede if cede else "J.G."}
 
             if st.button("Guardar Resultado Oficial", type="primary"):
                 with st.spinner("Guardando..."):
                     conn.update(worksheet="Partidos", data=pd.concat([df_partidos, pd.DataFrame([{"Torneo": torneo_actual, "Jornada": jorn, "Local": loc, "Goles_L": gl, "Goles_V": gv, "Visitante": vis, "WO": wo}])], ignore_index=True))
                     time.sleep(1)
+                    
                     if goleadores_data: 
                         conn.update(worksheet="Goleadores", data=pd.concat([df_goleadores, pd.DataFrame(goleadores_data)], ignore_index=True))
                         time.sleep(1)
+                        
                     if transferencia_data: 
                         conn.update(worksheet="Transferencias", data=pd.concat([df_transferencias, pd.DataFrame([transferencia_data])], ignore_index=True))
                     
                     st.session_state["fk"] += 1
                     st.session_state["partido_seleccionado_click"] = None
                     st.cache_data.clear()
-                    st.success("✅ ¡Guardado!"); time.sleep(1); st.rerun()
+                    st.success("✅ ¡Guardado!")
+                    time.sleep(1)
+                    st.rerun()
 
 with tab_tabla:
     partidos_torneo = df_partidos[df_partidos['Torneo'] == torneo_actual]
