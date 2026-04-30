@@ -5,6 +5,7 @@ import google.generativeai as genai
 from PIL import Image
 import json
 import time
+import io
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
@@ -177,53 +178,39 @@ with tab_registro:
                 fotos = st.file_uploader("", type=["png","jpg","jpeg"], accept_multiple_files=True, key=f"f_{st.session_state['fk']}")
                 
                 if fotos:
-                    if st.button("👁️ Analizar Imágenes", type="secondary"):
+                    if st.button("👁️ Analizar Imágenes Rápido", type="secondary"):
                         if ia_lista:
-                            with st.spinner("IA analizando con máxima precisión. Por favor espera..."):
+                            with st.spinner("Leyendo pantalla... (Optimizando velocidad)"):
                                 try:
-                                    # --- SIN COMPRESIÓN: MÁXIMA CALIDAD ORIGINAL ---
-                                    imgs_para_ia = [Image.open(f) for f in fotos]
+                                    # --- COMPRESIÓN EQUILIBRADA PARA GANAR VELOCIDAD ---
+                                    imgs_para_ia = []
+                                    for f in fotos:
+                                        img = Image.open(f)
+                                        img.thumbnail((1200, 1200)) # Tamaño perfecto para leer y procesar en <15s
+                                        buffer = io.BytesIO()
+                                        img.convert("RGB").save(buffer, format="JPEG", quality=80)
+                                        imgs_para_ia.append(Image.open(buffer))
 
-                                    # --- PROMPT SECUENCIAL ESTRICTO (TU LÓGICA EXACTA) ---
-                                    prompt_ia = f"""
-                                    Eres un analista experto de EA FC. PRIORIDAD: 100% Precisión absoluta.
-                                    En nuestro sistema los equipos a buscar son: "{loc}" y "{vis}".
+                                    # --- PROMPT "TRANSCRIPTOR CIEGO" (NADA DE LÓGICA, SOLO LECTURA VISUAL) ---
+                                    prompt_ia = """
+                                    Eres un simple transcriptor de imágenes. No cruces datos. Solo describe lo que ves.
                                     
-                                    Ejecuta tu análisis SIGUIENDO ESTRICTAMENTE ESTE ORDEN (No te adelantes):
+                                    1. MARCADOR: ¿Qué equipo está escrito a la IZQUIERDA en la pantalla y cuántos goles tiene? ¿Qué equipo está escrito a la DERECHA y cuántos goles tiene?
+                                    2. LÍNEA DE TIEMPO IZQUIERDA: Lista todos los nombres que aparezcan a la izquierda y tengan un icono de BALÓN BLANCO (⚽). IGNORA tarjetas amarillas/rojas y flechas. Si un jugador tiene 2 balones, escríbelo 2 veces.
+                                    3. LÍNEA DE TIEMPO DERECHA: Haz lo mismo para el lado derecho.
                                     
-                                    --- FASE 1: EQUIPO DE LA IZQUIERDA ---
-                                    1. Enfócate SOLO en el lado IZQUIERDO de la pantalla.
-                                    2. ¿Cuál es el nombre del equipo a la IZQUIERDA en el marcador superior?
-                                    3. ¿Cuántos goles metió ese equipo según el número grande de la IZQUIERDA?
-                                    4. Ahora, mira debajo de ese equipo en la línea de tiempo (SOLO mitad izquierda).
-                                    5. Busca nombres que tengan un icono de BALÓN BLANCO (⚽). IGNORA tarjetas amarillas/rojas o flechas.
-                                    6. Haz una lista con esos nombres de la IZQUIERDA. Asegúrate de que el número de nombres coincida exactamente con los goles que encontraste en el paso 3.
-                                    
-                                    --- FASE 2: EQUIPO DE LA DERECHA ---
-                                    7. Ahora enfócate SOLO en el lado DERECHO de la pantalla.
-                                    8. ¿Cuál es el nombre del equipo a la DERECHA en el marcador superior?
-                                    9. ¿Cuántos goles metió ese equipo según el número grande de la DERECHA?
-                                    10. Mira debajo de ese equipo en la línea de tiempo (SOLO mitad derecha).
-                                    11. Busca nombres con BALÓN BLANCO (⚽). IGNORA tarjetas o flechas.
-                                    12. Haz una lista con esos nombres de la DERECHA. La cantidad debe coincidir con sus goles.
-                                    
-                                    --- FASE 3: CRUCE Y JSON ---
-                                    13. Compara el nombre del equipo de la FASE 1 con "{loc}" y "{vis}". 
-                                    - Si el equipo de la IZQUIERDA es "{loc}", pon sus goles en "goles_local" y su lista de nombres en "goleadores_local". 
-                                    - Si el equipo de la IZQUIERDA es "{vis}", pon sus goles en "goles_visitante" y su lista en "goleadores_visitante".
-                                    14. Haz lo mismo con los datos obtenidos en la FASE 2 para llenar los campos restantes.
-                                    
-                                    DEVUELVE ÚNICAMENTE ESTE JSON VÁLIDO (SIN EXPLICACIONES):
-                                    {{
-                                      "goles_local": numero,
-                                      "goles_visitante": numero,
-                                      "goleadores_local": ["Nombre Exacto"],
-                                      "goleadores_visitante": ["Nombre Exacto"]
-                                    }}
+                                    Devuelve ÚNICAMENTE este JSON:
+                                    {
+                                      "equipo_tv_izq": "Nombre textual",
+                                      "goles_tv_izq": numero,
+                                      "goleadores_tv_izq": ["Nombre", "Nombre"],
+                                      "equipo_tv_der": "Nombre textual",
+                                      "goles_tv_der": numero,
+                                      "goleadores_tv_der": ["Nombre"]
+                                    }
                                     """
                                     res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
                                     
-                                    # Cazador de JSON
                                     texto_puro = res.text
                                     inicio_json = texto_puro.find('{')
                                     fin_json = texto_puro.rfind('}')
@@ -235,18 +222,37 @@ with tab_registro:
                                         if "error" in d:
                                             st.error(f"❌ {d['error']}")
                                         else:
-                                            st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_local", 0)
-                                            st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_visitante", 0)
-                                            for i, jug in enumerate(d.get("goleadores_local", [])): 
+                                            # --- PYTHON HACE EL CRUCE LÓGICO INFALIBLE ---
+                                            eq_izq_tv = d.get("equipo_tv_izq", "").lower()
+                                            loc_app = loc.lower()
+                                            
+                                            # Checamos si la primera palabra de la TV coincide con el equipo local (Ej: "al" de "al hilal")
+                                            primera_pal_izq = eq_izq_tv.split()[0] if eq_izq_tv else ""
+                                            
+                                            if primera_pal_izq and primera_pal_izq in loc_app:
+                                                # La TV coincide con nuestro Formulario
+                                                st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_tv_izq", 0)
+                                                st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_tv_der", 0)
+                                                jugadores_l = d.get("goleadores_tv_izq", [])
+                                                jugadores_v = d.get("goleadores_tv_der", [])
+                                            else:
+                                                # Están invertidos en la TV
+                                                st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_tv_der", 0)
+                                                st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_tv_izq", 0)
+                                                jugadores_l = d.get("goleadores_tv_der", [])
+                                                jugadores_v = d.get("goleadores_tv_izq", [])
+                                            
+                                            # Llenar variables de sesión
+                                            for i, jug in enumerate(jugadores_l): 
                                                 st.session_state[f"jug_l_{i}_{st.session_state['fk']}"] = jug
-                                            for i, jug in enumerate(d.get("goleadores_visitante", [])): 
+                                            for i, jug in enumerate(jugadores_v): 
                                                 st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
                                             
-                                            st.success("✅ ¡Datos extraídos con máxima precisión!")
+                                            st.success("✅ ¡Datos leídos y cruzados por Python!")
                                             time.sleep(1)
                                             st.rerun() 
                                     else:
-                                        st.error(f"❌ La IA no devolvió un JSON válido. Respuesta: {texto_puro}")
+                                        st.error(f"❌ Respuesta inválida de la IA: {texto_puro}")
                                         
                                 except Exception as e:
                                     st.error(f"❌ Error al procesar: {e}")
@@ -295,10 +301,10 @@ with tab_registro:
                             transferencia_data = {"Torneo": torneo_actual, "Jornada": jorn, "Equipo": ganador, "Toma": toma, "Cede": cede if cede else "J.G."}
 
             if st.button("Guardar Resultado Oficial", type="primary"):
-                # --- CANDADO DE SEGURIDAD (Se mantiene) ---
+                # Candado de seguridad
                 goles_totales_esperados = gl + gv if not wo else 0
                 if not wo and len(goleadores_data) < goles_totales_esperados:
-                    st.error("⚠️ ¡Alto ahí! Te faltan goleadores por registrar. Por favor, llena todas las casillas vacías de goles antes de guardar.")
+                    st.error("⚠️ ¡Alto ahí! Te faltan goleadores por registrar. Llena todas las casillas de goles antes de guardar.")
                 else:
                     with st.spinner("Guardando..."):
                         conn.update(worksheet="Partidos", data=pd.concat([df_partidos, pd.DataFrame([{"Torneo": torneo_actual, "Jornada": jorn, "Local": loc, "Goles_L": gl, "Goles_V": gv, "Visitante": vis, "WO": wo}])], ignore_index=True))
