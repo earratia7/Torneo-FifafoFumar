@@ -111,7 +111,6 @@ st.title("🏆 Torneo FifafoFumar FC26")
 
 tab_registro, tab_tabla, tab_goleo, tab_transf, tab_config = st.tabs(["📝 Calendario", "📊 Posiciones", "⚽ Goleo", "🔄 Transferencias", "⚙️ Configuración"])
 
-# --- PESTAÑA DE CONFIGURACIÓN ---
 with tab_config:
     st.subheader("Alta de Torneos y Jugadores")
     col_t, col_e = st.columns(2)
@@ -123,7 +122,6 @@ with tab_config:
             st.cache_data.clear()
             st.success("✅ Registrado exitosamente."); st.rerun()
 
-# --- PESTAÑA CALENDARIO ---
 with tab_registro:
     if len(eq_activos) == 6:
         st.subheader(f"📅 Calendario Semana {sem_act}")
@@ -172,7 +170,6 @@ with tab_registro:
             p_data = next(p for p in pendientes if f"{p['Jornada']}: {p['Local']} vs {p['Visitante']}" == partido_sel)
             loc, vis, jorn = p_data['Local'], p_data['Visitante'], p_data['Jornada']
 
-            # --- TOGGLE IA ---
             usar_ia = st.toggle("🤖 Activar Escáner de IA (Autocompletado)")
             if usar_ia:
                 st.markdown(f"###### 📸 Sube las fotos del marcador final")
@@ -181,27 +178,43 @@ with tab_registro:
                 if fotos:
                     if st.button("👁️ Analizar Imágenes", type="secondary"):
                         if ia_lista:
-                            with st.spinner("IA analizando eventos del partido..."):
+                            with st.spinner("IA analizando eventos paso a paso..."):
                                 try:
-                                    # --- PROMPT DE IA CON TUS NUEVAS REGLAS ESTRICTAS ---
+                                    # --- PROMPT DE IA CON ALGORITMO PASO A PASO ---
                                     prompt_ia = f"""
-                                    Eres un analista experto de la interfaz del juego EA FC 24/25.
-                                    Tu tarea es extraer los datos del partido entre: {loc} (Local en nuestro sistema) y {vis} (Visitante en nuestro sistema).
+                                    Eres un analista experto de EA FC.
+                                    En nuestro formulario web: EL LOCAL ES "{loc}" y EL VISITANTE ES "{vis}".
                                     
-                                    REGLAS ESTRICTAS E INQUEBRANTABLES:
-                                    1. MARCADOR ABSOLUTO: Utiliza SIEMPRE el marcador final visible en la parte superior central de la pantalla (los números grandes) como la VERDAD ABSOLUTA para el conteo de goles, no te bases solo en contar las bolitas de la línea de tiempo.
-                                    2. IGNORA LA LOCALÍA DE NUESTRO SISTEMA: No asumas lados. Lee la pantalla. El nombre del equipo escrito a la IZQUIERDA en la TV es el dueño de la mitad izquierda de la línea de tiempo. El nombre del equipo escrito a la DERECHA en la TV es el dueño de la mitad derecha.
-                                    3. ASIGNACIÓN DE GOLES: Los goles (jugadores con icono de balón blanco) que aparecen a la izquierda pertenecen al equipo de la izquierda. Los que aparecen a la derecha pertenecen al equipo de la derecha.
-                                    4. MAPEO FINAL AL JSON: Una vez que sepas cuántos goles y qué jugadores tiene cada equipo según la pantalla, DEBES asignarlos correctamente al JSON basándote en los NOMBRES. Es decir, si {loc} apareció a la derecha en la TV, sus goles son los que contaste a la derecha.
-                                    5. FILTRO VISUAL: ¡IGNORA las tarjetas (rectángulos amarillos) y cambios (flechas verdes/rojas)! Solo cuenta como goleador al que tenga un BALÓN BLANCO.
-                                    6. REPETICIONES: Si un jugador metió 2 o más goles (tiene varios balones), REPITE su nombre en la lista por cada balón que tenga.
+                                    Ejecuta ESTRICTAMENTE este algoritmo paso a paso:
                                     
-                                    FORMATO DE SALIDA EXACTO (Devuelve ÚNICAMENTE el JSON válido, sin texto markdown ni comillas externas):
+                                    PASO 1 (MARCADOR SUPERIOR):
+                                    Mira el marcador grande arriba en la TV. Hay un equipo a la IZQUIERDA y otro a la DERECHA.
+                                    ¿Cuál de los dos equipos de nuestro formulario ({loc} o {vis}) está a la IZQUIERDA en la TV?
+                                    ¿Cuál está a la DERECHA en la TV?
+                                    Anótalo mentalmente para no cruzarlos.
+                                    
+                                    PASO 2 (GOLEADORES IZQUIERDA):
+                                    Revisa la línea de tiempo vertical. Busca a los jugadores que aparecen a la IZQUIERDA de la línea central.
+                                    SOLO selecciona a los que tengan un icono de BALÓN BLANCO. 
+                                    ¡RECHAZA INMEDIATAMENTE a los que tengan rectángulos (tarjetas) o flechas (cambios)!
+                                    Asigna estos jugadores al equipo que identificaste a la IZQUIERDA en el Paso 1.
+                                    
+                                    PASO 3 (GOLEADORES DERECHA):
+                                    Busca a los jugadores que aparecen a la DERECHA de la línea central.
+                                    SOLO selecciona a los que tengan un icono de BALÓN BLANCO.
+                                    ¡RECHAZA INMEDIATAMENTE a los que tengan tarjetas o cambios! (Si ves una tarjeta amarilla, NO ES GOL).
+                                    Asigna estos jugadores al equipo que identificaste a la DERECHA en el Paso 1.
+                                    
+                                    PASO 4 (MAPEADO FINAL AL JSON):
+                                    Ahora debes generar el JSON llenando la información correspondiente a "{loc}" y "{vis}" basándote en los pasos anteriores.
+                                    (Asegúrate de repetir el nombre de un jugador si anotó múltiples goles).
+                                    
+                                    FORMATO EXACTO (Devuelve ÚNICAMENTE el JSON, sin texto markdown):
                                     {{
-                                      "goles_local": (Goles totales del equipo {loc} según el marcador superior),
-                                      "goles_visitante": (Goles totales del equipo {vis} según el marcador superior),
-                                      "goleadores_local": ["Jugador 1", "Jugador 2"],
-                                      "goleadores_visitante": ["Jugador 1"]
+                                      "goles_local": numero_total_goles_de_LOCAL,
+                                      "goles_visitante": numero_total_goles_de_VISITANTE,
+                                      "goleadores_local": ["Nombre", "Nombre"],
+                                      "goleadores_visitante": ["Nombre"]
                                     }}
                                     """
                                     imgs = [Image.open(f) for f in fotos]
@@ -220,11 +233,10 @@ with tab_registro:
                                         time.sleep(1)
                                         st.rerun() 
                                 except Exception as e:
-                                    st.error(f"❌ Error al procesar: El formato de la imagen no es claro o no detectó goles legibles. ({e})")
+                                    st.error(f"❌ Error al procesar: {e}")
                         else:
                             st.warning("⚠️ La IA no está configurada.")
 
-            # --- FORMULARIO MANUAL ---
             st.write("") 
             col1, col2 = st.columns(2)
             with col1: gl = st.number_input(f"Goles {loc}", min_value=0, key=f"gl_{st.session_state['fk']}")
@@ -274,7 +286,6 @@ with tab_registro:
                     st.cache_data.clear()
                     st.success("✅ ¡Guardado!"); time.sleep(1); st.rerun()
 
-# --- TABLAS DE POSICIONES Y GOLEO ---
 with tab_tabla:
     partidos_torneo = df_partidos[df_partidos['Torneo'] == torneo_actual]
     if not partidos_torneo.empty:
