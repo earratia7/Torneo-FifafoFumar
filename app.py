@@ -51,7 +51,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- MEMORIA ---
+# --- MEMORIA DE SELECCIÓN Y SCROLL ---
 if "partido_seleccionado_click" not in st.session_state:
     st.session_state["partido_seleccionado_click"] = None
 if "scroll_trigger" not in st.session_state:
@@ -111,6 +111,19 @@ st.title("🏆 Torneo FifafoFumar FC26")
 
 tab_registro, tab_tabla, tab_goleo, tab_transf, tab_config = st.tabs(["📝 Calendario", "📊 Posiciones", "⚽ Goleo", "🔄 Transferencias", "⚙️ Configuración"])
 
+# --- PESTAÑA DE CONFIGURACIÓN (RESTAURADA) ---
+with tab_config:
+    st.subheader("Alta de Torneos y Jugadores")
+    col_t, col_e = st.columns(2)
+    with col_t: nuevo_torneo = st.text_input("Nombre del Torneo:")
+    with col_e: nuevo_equipo = st.text_input("Emoji + Equipo + (Manager):")
+    if st.button("Inscribir Jugador"):
+        if nuevo_torneo and nuevo_equipo:
+            conn.update(worksheet="Equipos", data=pd.concat([df_equipos, pd.DataFrame([{"Torneo": nuevo_torneo, "Equipo": nuevo_equipo}])], ignore_index=True))
+            st.cache_data.clear()
+            st.success("✅ Registrado exitosamente."); st.rerun()
+
+# --- PESTAÑA CALENDARIO ---
 with tab_registro:
     if len(eq_activos) == 6:
         st.subheader(f"📅 Calendario Semana {sem_act}")
@@ -167,7 +180,6 @@ with tab_registro:
                     if ia_lista:
                         with st.spinner("IA analizando..."):
                             try:
-                                # --- INSTRUCCIONES ESTRICTAS PARA LA IA ---
                                 prompt_ia = f"""
                                 Eres un árbitro experto de EA FC.
                                 El usuario seleccionó el partido: {loc} (Local) vs {vis} (Visitante).
@@ -206,7 +218,6 @@ with tab_registro:
                     else:
                         st.warning("⚠️ La IA no está configurada.")
 
-            # --- FORMULARIO MANUAL ---
             st.write("") 
             col1, col2 = st.columns(2)
             with col1: gl = st.number_input(f"Goles {loc}", min_value=0, key=f"gl_{st.session_state['fk']}")
@@ -256,7 +267,7 @@ with tab_registro:
                     st.cache_data.clear()
                     st.success("✅ ¡Guardado!"); time.sleep(1); st.rerun()
 
-# --- TABLAS (IGUAL) ---
+# --- TABLAS (RESTAURADAS COMPLETAS) ---
 with tab_tabla:
     partidos_torneo = df_partidos[df_partidos['Torneo'] == torneo_actual]
     if not partidos_torneo.empty:
