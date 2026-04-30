@@ -314,4 +314,4 @@ with tab_goleo:
 
 with tab_transf:
     t_t = df_transferencias[df_transferencias['Torneo'] == torneo_actual]
-    if not t_t.empty: st.dataframe(t_t[["Jornada", "Equipo", "Toma", "Cede"]], use_container_width=True)git add .
+    if not t_t.empty: st.dataframe(t_t[["Jornada", "Equipo", "Toma", "Cede"]], use_container_width=True)
