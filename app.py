@@ -190,7 +190,6 @@ with tab_registro:
                                         img.convert("RGB").save(buffer, format="JPEG", quality=80)
                                         imgs_para_ia.append(Image.open(buffer))
 
-                                    # --- PROMPT DE EXTRACCIÓN TOTAL (SIN FILTROS) ---
                                     prompt_ia = """
                                     Eres un transcriptor de datos crudos de EA FC.
                                     NO FILTRES NADA. Transcribe TODOS los eventos de la línea de tiempo.
@@ -211,8 +210,7 @@ with tab_registro:
                                         "nombre": "Nombre textual",
                                         "goles": numero,
                                         "eventos": [
-                                          {"nombre": "Jugador1", "minuto": "10'", "icono": "balon"},
-                                          {"nombre": "Jugador2", "minuto": "90'", "icono": "amarilla"}
+                                          {"nombre": "Jugador1", "minuto": "10'", "icono": "balon"}
                                         ]
                                       },
                                       "tv_der": {
@@ -225,7 +223,6 @@ with tab_registro:
                                     }
                                     """
                                     
-                                    # --- SISTEMA DE REINTENTO ---
                                     max_intentos = 3
                                     res = None
                                     for intento in range(max_intentos):
@@ -250,13 +247,11 @@ with tab_registro:
                                         if "error" in d:
                                             st.error(f"❌ {d['error']}")
                                         else:
-                                            # --- 1. PYTHON FILTRA GOLES Y ELIMINA DUPLICADOS ---
                                             def extraer_goleadores(eventos):
                                                 goles_unicos = []
                                                 vistos = set()
                                                 for ev in eventos:
                                                     icono = str(ev.get("icono", "")).lower()
-                                                    # Solo nos quedamos con los que sean balones
                                                     if "balon" in icono or "balón" in icono or "gol" in icono or "ball" in icono:
                                                         nombre = str(ev.get("nombre", "")).strip()
                                                         minuto = str(ev.get("minuto", "")).strip()
@@ -269,7 +264,6 @@ with tab_registro:
                                             goleadores_tv_izq = extraer_goleadores(d['tv_izq'].get('eventos', []))
                                             goleadores_tv_der = extraer_goleadores(d['tv_der'].get('eventos', []))
 
-                                            # --- 2. PYTHON HACE EL CRUCE DE EQUIPOS ---
                                             eq_izq = d.get("tv_izq", {}).get("nombre", "")
                                             def clean_words(text):
                                                 return [w for w in ''.join(c.lower() if c.isalnum() else ' ' for c in text).split() if len(w) > 2]
@@ -347,7 +341,6 @@ with tab_registro:
                             transferencia_data = {"Torneo": torneo_actual, "Jornada": jorn, "Equipo": ganador, "Toma": toma, "Cede": cede if cede else "J.G."}
 
             if st.button("Guardar Resultado Oficial", type="primary"):
-                # --- CANDADO DE SEGURIDAD ---
                 goles_totales_esperados = gl + gv if not wo else 0
                 if not wo and len(goleadores_data) < goles_totales_esperados:
                     st.error("⚠️ ¡Alto ahí! Te faltan goleadores por registrar. Llena todas las casillas de goles antes de guardar.")
@@ -381,15 +374,21 @@ with tab_tabla:
                 if gl > gv: stats[loc]['G'] += 1; stats[loc]['Pts'] += 3; stats[vis]['P'] += 1
                 elif gv > gl: stats[vis]['G'] += 1; stats[vis]['Pts'] += 3; stats[loc]['P'] += 1
                 else: stats[loc]['E'] += 1; stats[vis]['E'] += 1; stats[loc]['Pts'] += 1; stats[vis]['Pts'] += 1
-        df_t = pd.DataFrame.from_dict(stats, orient='index')
+        
+        # Reformateamos la tabla de posiciones para que no muestre el índice basura
+        df_t = pd.DataFrame.from_dict(stats, orient='index').reset_index()
+        df_t = df_t.rename(columns={'index': 'Equipo'})
         df_t['DG'] = df_t['GF'] - df_t['GC']
-        st.dataframe(df_t[['PJ', 'G', 'E', 'P', 'GF', 'GC', 'DG', 'Pts']].sort_values(by=['Pts', 'DG'], ascending=False), use_container_width=True)
+        st.dataframe(df_t[['Equipo', 'PJ', 'G', 'E', 'P', 'GF', 'GC', 'DG', 'Pts']].sort_values(by=['Pts', 'DG'], ascending=False), use_container_width=True, hide_index=True)
 
 with tab_goleo:
     goles_t = df_goleadores[df_goleadores['Torneo'] == torneo_actual]
     if not goles_t.empty:
-        st.dataframe(goles_t.groupby(['Jugador', 'Equipo'])['Goles'].sum().reset_index().sort_values(by='Goles', ascending=False), use_container_width=True)
+        # Se agrega hide_index=True
+        st.dataframe(goles_t.groupby(['Jugador', 'Equipo'])['Goles'].sum().reset_index().sort_values(by='Goles', ascending=False), use_container_width=True, hide_index=True)
 
 with tab_transf:
     t_t = df_transferencias[df_transferencias['Torneo'] == torneo_actual]
-    if not t_t.empty: st.dataframe(t_t[["Jornada", "Equipo", "Toma", "Cede"]], use_container_width=True)
+    if not t_t.empty: 
+        # Se agrega hide_index=True
+        st.dataframe(t_t[["Jornada", "Equipo", "Toma", "Cede"]], use_container_width=True, hide_index=True)
