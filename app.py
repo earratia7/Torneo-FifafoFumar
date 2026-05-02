@@ -63,7 +63,7 @@ if "fk" not in st.session_state:
 # --- IA ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    modelo_ia = genai.GenerativeModel('gemini-2.5-flash')
+    modelo_ia = genai.GenerativeModel('gemini-2.0-flash')
     ia_lista = True
 except:
     ia_lista = False
@@ -180,7 +180,7 @@ with tab_registro:
                 if fotos:
                     if st.button("👁️ Analizar Imágenes", type="secondary"):
                         if ia_lista:
-                            with st.spinner("Transcribiendo datos (Optimizando para exactitud)..."):
+                            with st.spinner("Transcribiendo datos visuales..."):
                                 try:
                                     imgs_para_ia = []
                                     for f in fotos:
@@ -190,38 +190,32 @@ with tab_registro:
                                         img.convert("RGB").save(buffer, format="JPEG", quality=80)
                                         imgs_para_ia.append(Image.open(buffer))
 
-                                    # --- PROMPT "TRANSCRIPTOR CIEGO" A PRUEBA DE BALAS ---
-                                    prompt_ia = f"""
-                                    Eres un transcriptor. No pienses en quién es local o visitante.
-                                    Tienes 2 OPCIONES EXACTAS de nombres de equipos:
-                                    Opción A: "{loc}"
-                                    Opción B: "{vis}"
+                                    # --- PROMPT 100% CIEGO: LA IA NO SABE NADA DEL FORMULARIO ---
+                                    prompt_ia = """
+                                    Eres un transcriptor ciego y literal. NO interpretes, NO asumas localías, NO cruces datos.
                                     
-                                    PASO 1 (MARCADOR):
-                                    - Mira la parte superior. Identifica al equipo de la IZQUIERDA en la TV. Asignale exactamente el texto de la "Opción A" o la "Opción B" que corresponda a su nombre.
-                                    - ¿Cuántos goles tiene el equipo de la IZQUIERDA en el marcador?
-                                    - Identifica al equipo de la DERECHA en la TV. Asignale exactamente la "Opción A" o la "Opción B" que le corresponda.
-                                    - ¿Cuántos goles tiene el equipo de la DERECHA en el marcador?
+                                    PASO 1 (LADO IZQUIERDO DE LA PANTALLA):
+                                    - ¿Qué nombre de equipo está escrito literalmente en el marcador superior izquierdo?
+                                    - ¿Cuántos goles tiene ese equipo según el marcador superior?
+                                    - Extrae la lista de goleadores (solo nombres con el icono de BALÓN BLANCO ⚽) del lado izquierdo de la línea de tiempo. Usa los minutos para NO duplicar un mismo gol si hay varias imágenes. IGNORA tarjetas o flechas.
                                     
-                                    PASO 2 (GOLEADORES E IGNORAR DUPLICADOS):
-                                    - Hay varias fotos, por lo que un mismo evento puede salir repetido. 
-                                    - Revisa los minutos (ej. 45', 71') de cada jugador para extraer una lista ÚNICA de goles. No cuentes el mismo gol (mismo jugador, mismo minuto) dos veces.
-                                    - SOLO extrae nombres con un icono de BALÓN BLANCO (⚽). IGNORA tarjetas o flechas de cambios.
-                                    - Haz la lista final para el lado IZQUIERDO.
-                                    - Haz la lista final para el lado DERECHO.
+                                    PASO 2 (LADO DERECHO DE LA PANTALLA):
+                                    - ¿Qué nombre de equipo está escrito literalmente en el marcador superior derecho?
+                                    - ¿Cuántos goles tiene ese equipo?
+                                    - Extrae la lista de goleadores del lado derecho de la línea de tiempo bajo las mismas reglas.
                                     
                                     PASO 3 (AUDITORÍA):
-                                    - Asegúrate de que el total de nombres en la lista IZQUIERDA sea igual a sus goles. Si un jugador anotó goles distintos (minutos distintos), escríbelo 2 veces. Haz lo mismo en la DERECHA.
+                                    - Asegúrate de que el total de nombres en la lista IZQUIERDA sea igual a sus goles. Si un jugador anotó en minutos distintos, escríbelo 2 veces. Haz lo mismo en la DERECHA.
                                     
                                     Devuelve ÚNICAMENTE este JSON:
-                                    {{
-                                      "equipo_tv_izq": "TEXTO EXACTO DE OPCION A O B",
+                                    {
+                                      "equipo_tv_izq": "Nombre textual en pantalla",
                                       "goles_tv_izq": numero,
                                       "goleadores_tv_izq": ["Nombre"],
-                                      "equipo_tv_der": "TEXTO EXACTO DE OPCION A O B",
+                                      "equipo_tv_der": "Nombre textual en pantalla",
                                       "goles_tv_der": numero,
                                       "goleadores_tv_der": ["Nombre"]
-                                    }}
+                                    }
                                     """
                                     res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
                                     
@@ -236,33 +230,31 @@ with tab_registro:
                                         if "error" in d:
                                             st.error(f"❌ {d['error']}")
                                         else:
-                                            # --- PYTHON HACE EL CRUCE INFALIBLE Y DIRECTO ---
-                                            eq_izq = d.get("equipo_tv_izq", "").strip()
+                                            # --- PYTHON HACE EL CRUCE INFALIBLE ---
+                                            eq_izq = d.get("equipo_tv_izq", "")
                                             
-                                            if eq_izq == loc:
-                                                # La TV y el formulario están del mismo lado
+                                            # Función rápida para limpiar strings (quita emojis y paréntesis, deja solo palabras largas)
+                                            def clean_words(text):
+                                                return [w for w in ''.join(c.lower() if c.isalnum() else ' ' for c in text).split() if len(w) > 2]
+                                            
+                                            loc_words = clean_words(loc)
+                                            izq_words = clean_words(eq_izq)
+                                            
+                                            # Si alguna palabra clave de nuestro "Local" coincide con el equipo izquierdo de la TV...
+                                            es_local_izq = any(w in izq_words for w in loc_words)
+                                            
+                                            if es_local_izq:
+                                                # La TV y el formulario coinciden en posición
                                                 st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_tv_izq", 0)
                                                 st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_tv_der", 0)
                                                 jugadores_l = d.get("goleadores_tv_izq", [])
                                                 jugadores_v = d.get("goleadores_tv_der", [])
-                                            elif eq_izq == vis:
+                                            else:
                                                 # La TV y el formulario están invertidos
                                                 st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_tv_der", 0)
                                                 st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_tv_izq", 0)
                                                 jugadores_l = d.get("goleadores_tv_der", [])
                                                 jugadores_v = d.get("goleadores_tv_izq", [])
-                                            else:
-                                                # Rescate en caso de que la IA olvide escribir el texto exacto
-                                                if loc.lower() in eq_izq.lower():
-                                                    st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_tv_izq", 0)
-                                                    st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_tv_der", 0)
-                                                    jugadores_l = d.get("goleadores_tv_izq", [])
-                                                    jugadores_v = d.get("goleadores_tv_der", [])
-                                                else:
-                                                    st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_tv_der", 0)
-                                                    st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_tv_izq", 0)
-                                                    jugadores_l = d.get("goleadores_tv_der", [])
-                                                    jugadores_v = d.get("goleadores_tv_izq", [])
 
                                             # Llenar las variables del formulario
                                             for i, jug in enumerate(jugadores_l): 
@@ -270,7 +262,7 @@ with tab_registro:
                                             for i, jug in enumerate(jugadores_v): 
                                                 st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
                                             
-                                            st.success("✅ ¡Datos leídos y cruzados correctamente!")
+                                            st.success("✅ ¡Datos extraídos y ordenados correctamente por el sistema!")
                                             time.sleep(1)
                                             st.rerun() 
                                     else:
