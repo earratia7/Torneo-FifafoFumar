@@ -63,7 +63,7 @@ if "fk" not in st.session_state:
 # --- IA ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    modelo_ia = genai.GenerativeModel('gemini-2.0-flash')
+    modelo_ia = genai.GenerativeModel('gemini-2.5-flash')
     ia_lista = True
 except:
     ia_lista = False
