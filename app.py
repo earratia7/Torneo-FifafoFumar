@@ -190,34 +190,54 @@ with tab_registro:
                                         img.convert("RGB").save(buffer, format="JPEG", quality=80)
                                         imgs_para_ia.append(Image.open(buffer))
 
-                                    # --- PROMPT 100% CIEGO: LA IA NO SABE NADA DEL FORMULARIO ---
+                                    # --- PROMPT DE EXTRACCIÓN TOTAL (SIN FILTROS) ---
                                     prompt_ia = """
-                                    Eres un transcriptor ciego y literal. NO interpretes, NO asumas localías, NO cruces datos.
+                                    Eres un transcriptor de datos crudos de EA FC.
+                                    NO FILTRES NADA. Transcribe TODOS los eventos de la línea de tiempo.
                                     
-                                    PASO 1 (LADO IZQUIERDO DE LA PANTALLA):
-                                    - ¿Qué nombre de equipo está escrito literalmente en el marcador superior izquierdo?
-                                    - ¿Cuántos goles tiene ese equipo según el marcador superior?
-                                    - Extrae la lista de goleadores (solo nombres con el icono de BALÓN BLANCO ⚽) del lado izquierdo de la línea de tiempo. Usa los minutos para NO duplicar un mismo gol si hay varias imágenes. IGNORA tarjetas o flechas.
+                                    PASO 1 (LADO IZQUIERDO):
+                                    - Nombre exacto del equipo en el marcador superior izquierdo.
+                                    - Goles de ese equipo en el marcador.
+                                    - Lista TODOS los eventos que aparecen del lado izquierdo. Para cada evento indica: "nombre" del jugador, el "minuto" (ej. 45'), y el "icono" que tiene al lado (escribe "balon", "amarilla", "roja" o "cambio").
                                     
-                                    PASO 2 (LADO DERECHO DE LA PANTALLA):
-                                    - ¿Qué nombre de equipo está escrito literalmente en el marcador superior derecho?
-                                    - ¿Cuántos goles tiene ese equipo?
-                                    - Extrae la lista de goleadores del lado derecho de la línea de tiempo bajo las mismas reglas.
-                                    
-                                    PASO 3 (AUDITORÍA):
-                                    - Asegúrate de que el total de nombres en la lista IZQUIERDA sea igual a sus goles. Si un jugador anotó en minutos distintos, escríbelo 2 veces. Haz lo mismo en la DERECHA.
+                                    PASO 2 (LADO DERECHO):
+                                    - Nombre exacto del equipo en el marcador superior derecho.
+                                    - Goles de ese equipo en el marcador.
+                                    - Lista TODOS los eventos que aparecen del lado derecho con su nombre, minuto e icono.
                                     
                                     Devuelve ÚNICAMENTE este JSON:
                                     {
-                                      "equipo_tv_izq": "Nombre textual en pantalla",
-                                      "goles_tv_izq": numero,
-                                      "goleadores_tv_izq": ["Nombre"],
-                                      "equipo_tv_der": "Nombre textual en pantalla",
-                                      "goles_tv_der": numero,
-                                      "goleadores_tv_der": ["Nombre"]
+                                      "tv_izq": {
+                                        "nombre": "Nombre textual",
+                                        "goles": numero,
+                                        "eventos": [
+                                          {"nombre": "Jugador1", "minuto": "10'", "icono": "balon"},
+                                          {"nombre": "Jugador2", "minuto": "90'", "icono": "amarilla"}
+                                        ]
+                                      },
+                                      "tv_der": {
+                                        "nombre": "Nombre textual",
+                                        "goles": numero,
+                                        "eventos": [
+                                          {"nombre": "Jugador3", "minuto": "45'", "icono": "cambio"}
+                                        ]
+                                      }
                                     }
                                     """
-                                    res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
+                                    
+                                    # --- SISTEMA DE REINTENTO ---
+                                    max_intentos = 3
+                                    res = None
+                                    for intento in range(max_intentos):
+                                        try:
+                                            res = modelo_ia.generate_content([prompt_ia] + imgs_para_ia)
+                                            break
+                                        except Exception as e_api:
+                                            if "429" in str(e_api) and intento < max_intentos - 1:
+                                                st.warning(f"⏳ Límite alcanzado. Esperando 8s para reintentar... (Intento {intento+1}/{max_intentos})")
+                                                time.sleep(8)
+                                            else:
+                                                raise e_api
                                     
                                     texto_puro = res.text
                                     inicio_json = texto_puro.find('{')
@@ -230,39 +250,51 @@ with tab_registro:
                                         if "error" in d:
                                             st.error(f"❌ {d['error']}")
                                         else:
-                                            # --- PYTHON HACE EL CRUCE INFALIBLE ---
-                                            eq_izq = d.get("equipo_tv_izq", "")
-                                            
-                                            # Función rápida para limpiar strings (quita emojis y paréntesis, deja solo palabras largas)
+                                            # --- 1. PYTHON FILTRA GOLES Y ELIMINA DUPLICADOS ---
+                                            def extraer_goleadores(eventos):
+                                                goles_unicos = []
+                                                vistos = set()
+                                                for ev in eventos:
+                                                    icono = str(ev.get("icono", "")).lower()
+                                                    # Solo nos quedamos con los que sean balones
+                                                    if "balon" in icono or "balón" in icono or "gol" in icono or "ball" in icono:
+                                                        nombre = str(ev.get("nombre", "")).strip()
+                                                        minuto = str(ev.get("minuto", "")).strip()
+                                                        clave = f"{nombre}_{minuto}"
+                                                        if clave not in vistos:
+                                                            vistos.add(clave)
+                                                            goles_unicos.append(nombre)
+                                                return goles_unicos
+
+                                            goleadores_tv_izq = extraer_goleadores(d['tv_izq'].get('eventos', []))
+                                            goleadores_tv_der = extraer_goleadores(d['tv_der'].get('eventos', []))
+
+                                            # --- 2. PYTHON HACE EL CRUCE DE EQUIPOS ---
+                                            eq_izq = d.get("tv_izq", {}).get("nombre", "")
                                             def clean_words(text):
                                                 return [w for w in ''.join(c.lower() if c.isalnum() else ' ' for c in text).split() if len(w) > 2]
                                             
                                             loc_words = clean_words(loc)
                                             izq_words = clean_words(eq_izq)
-                                            
-                                            # Si alguna palabra clave de nuestro "Local" coincide con el equipo izquierdo de la TV...
                                             es_local_izq = any(w in izq_words for w in loc_words)
                                             
                                             if es_local_izq:
-                                                # La TV y el formulario coinciden en posición
-                                                st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_tv_izq", 0)
-                                                st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_tv_der", 0)
-                                                jugadores_l = d.get("goleadores_tv_izq", [])
-                                                jugadores_v = d.get("goleadores_tv_der", [])
+                                                st.session_state[f"gl_{st.session_state['fk']}"] = d['tv_izq'].get("goles", 0)
+                                                st.session_state[f"gv_{st.session_state['fk']}"] = d['tv_der'].get("goles", 0)
+                                                jugadores_l = goleadores_tv_izq
+                                                jugadores_v = goleadores_tv_der
                                             else:
-                                                # La TV y el formulario están invertidos
-                                                st.session_state[f"gl_{st.session_state['fk']}"] = d.get("goles_tv_der", 0)
-                                                st.session_state[f"gv_{st.session_state['fk']}"] = d.get("goles_tv_izq", 0)
-                                                jugadores_l = d.get("goleadores_tv_der", [])
-                                                jugadores_v = d.get("goleadores_tv_izq", [])
+                                                st.session_state[f"gl_{st.session_state['fk']}"] = d['tv_der'].get("goles", 0)
+                                                st.session_state[f"gv_{st.session_state['fk']}"] = d['tv_izq'].get("goles", 0)
+                                                jugadores_l = goleadores_tv_der
+                                                jugadores_v = goleadores_tv_izq
 
-                                            # Llenar las variables del formulario
                                             for i, jug in enumerate(jugadores_l): 
                                                 st.session_state[f"jug_l_{i}_{st.session_state['fk']}"] = jug
                                             for i, jug in enumerate(jugadores_v): 
                                                 st.session_state[f"jug_v_{i}_{st.session_state['fk']}"] = jug
                                             
-                                            st.success("✅ ¡Datos extraídos y ordenados correctamente por el sistema!")
+                                            st.success("✅ ¡Datos extraídos, filtrados y cruzados perfectamente por Python!")
                                             time.sleep(1)
                                             st.rerun() 
                                     else:
