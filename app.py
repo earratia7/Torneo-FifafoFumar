@@ -131,23 +131,8 @@ else:
 with st.sidebar:
     st.header("⚙️ Configuración")
 
-    # --- Selector solo con torneos ACTIVOS ---
-    if torneos_activos:
-        torneo_actual = st.selectbox("Torneo Activo:", torneos_activos)
-    else:
-        torneo_actual = st.selectbox("Torneo Activo:", ["Sin Torneos Activos"])
-
-    eq_activos = df_equipos[df_equipos['Torneo'] == torneo_actual]['Equipo'].tolist() if not df_equipos.empty else []
-
-    # --- Cálculo de la semana sugerida ---
-    # La app detecta sola hasta qué semana has jugado, mirando los partidos ya guardados.
-    sem_sug = detectar_semana(eq_activos, df_partidos, torneo_actual)
-
-    sem_act = st.number_input("Semana de Juego:", min_value=1, max_value=20, value=sem_sug, key="memoria_semana")
-
     # --- Consulta de torneos archivados ---
     if torneos_archivados:
-        st.divider()
         st.subheader("🗄️ Torneos Archivados")
         st.caption("Solo para consulta. No se pueden editar.")
         torneo_archivado_sel = st.selectbox("Ver torneo archivado:", ["-- Selecciona --"] + torneos_archivados, key="sel_archivado")
@@ -178,6 +163,28 @@ with col_refresh:
     if st.button("🔄", help="Forzar actualización de datos", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
+
+# --- SELECTORES DE TORNEO Y SEMANA (debajo del título, encima de las pestañas) ---
+# Solo se muestran cuando NO estás consultando un archivado, para no confundir.
+mostrar_selectores = (torneo_archivado_sel == "-- Selecciona --")
+
+if mostrar_selectores:
+    col_torneo, col_semana = st.columns(2)
+    with col_torneo:
+        if torneos_activos:
+            torneo_actual = st.selectbox("Torneo", torneos_activos)
+        else:
+            torneo_actual = st.selectbox("Torneo", ["Sin Torneos Activos"])
+    eq_activos = df_equipos[df_equipos['Torneo'] == torneo_actual]['Equipo'].tolist() if not df_equipos.empty else []
+    sem_sug = detectar_semana(eq_activos, df_partidos, torneo_actual)
+    with col_semana:
+        sem_act = st.number_input("Semana", min_value=1, max_value=20, value=sem_sug, key="memoria_semana")
+else:
+    # En modo consulta de archivado calculamos valores por defecto para no romper el código,
+    # pero no dibujamos los selectores en pantalla.
+    torneo_actual = torneos_activos[0] if torneos_activos else "Sin Torneos Activos"
+    eq_activos = df_equipos[df_equipos['Torneo'] == torneo_actual]['Equipo'].tolist() if not df_equipos.empty else []
+    sem_act = 1
 
 # --- VISTA DE CONSULTA DE ARCHIVADOS ---
 # Si elegiste un torneo archivado en la barra lateral, mostramos su resumen y nada más.
