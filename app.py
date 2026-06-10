@@ -145,20 +145,29 @@ with st.sidebar:
 
     sem_act = st.number_input("Semana de Juego:", min_value=1, max_value=20, value=sem_sug, key="memoria_semana")
 
-    if st.button("🔄 Forzar Actualización"):
-        st.cache_data.clear()
-        st.rerun()
-
     # --- Consulta de torneos archivados ---
     if torneos_archivados:
         st.divider()
         st.subheader("🗄️ Torneos Archivados")
         st.caption("Solo para consulta. No se pueden editar.")
-        torneo_archivado_sel = st.selectbox("Ver torneo archivado:", ["-- Selecciona --"] + torneos_archivados)
+        torneo_archivado_sel = st.selectbox("Ver torneo archivado:", ["-- Selecciona --"] + torneos_archivados, key="sel_archivado")
+        # Botón para salir del modo consulta y volver al torneo activo.
+        if torneo_archivado_sel != "-- Selecciona --":
+            if st.button("↩️ Volver al torneo activo", use_container_width=True):
+                st.session_state["sel_archivado"] = "-- Selecciona --"
+                st.rerun()
     else:
         torneo_archivado_sel = "-- Selecciona --"
 
-st.title("🏆 Torneo FifafoFumar FC26")
+# --- ENCABEZADO CON BOTÓN DE ACTUALIZAR EN LA ESQUINA SUPERIOR DERECHA ---
+col_titulo, col_refresh = st.columns([10, 1])
+with col_titulo:
+    st.title("🏆 Torneo FifafoFumar FC26")
+with col_refresh:
+    st.write("")  # pequeño espacio para alinear el botón con el título
+    if st.button("🔄", help="Forzar actualización de datos", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
 
 # --- VISTA DE CONSULTA DE ARCHIVADOS ---
 # Si elegiste un torneo archivado en la barra lateral, mostramos su resumen y nada más.
