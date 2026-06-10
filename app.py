@@ -128,19 +128,6 @@ else:
     torneos_activos = []
     torneos_archivados = []
 
-with st.sidebar:
-    st.header("⚙️ Configuración")
-
-    # --- Consulta de torneos archivados ---
-    # El menú controla todo: eliges un torneo para verlo en modo consulta,
-    # y eliges "-- Selecciona --" para volver a tu torneo activo.
-    if torneos_archivados:
-        st.subheader("🗄️ Torneos Archivados")
-        st.caption("Elige uno para consultarlo (solo lectura). Vuelve a '-- Selecciona --' para regresar al torneo activo.")
-        torneo_archivado_sel = st.selectbox("Ver torneo archivado:", ["-- Selecciona --"] + torneos_archivados, key="sel_archivado")
-    else:
-        torneo_archivado_sel = "-- Selecciona --"
-
 # --- ENCABEZADO CON BOTÓN DE ACTUALIZAR EN LA ESQUINA SUPERIOR DERECHA ---
 col_titulo, col_refresh = st.columns([10, 1])
 with col_titulo:
@@ -151,37 +138,74 @@ with col_refresh:
         st.cache_data.clear()
         st.rerun()
 
-# --- SELECTORES DE TORNEO Y SEMANA (debajo del título, encima de las pestañas) ---
-# Solo se muestran cuando NO estás consultando un archivado, para no confundir.
-mostrar_selectores = (torneo_archivado_sel == "-- Selecciona --")
+# --- MENÚ ÚNICO DE TORNEO (activos primero, luego archivados, todos con su estado) ---
+# Construimos una lista de etiquetas legibles y un diccionario para saber qué hay detrás.
+opciones_torneo = []          # lo que ve el usuario, ej: "FC26#6 ✅ Activo"
+mapa_torneo = {}              # etiqueta -> (nombre_real, es_archivado)
 
-if mostrar_selectores:
-    col_torneo, col_semana = st.columns(2)
-    with col_torneo:
-        if torneos_activos:
-            torneo_actual = st.selectbox("Torneo", torneos_activos)
-        else:
-            torneo_actual = st.selectbox("Torneo", ["Sin Torneos Activos"])
-    eq_activos = df_equipos[df_equipos['Torneo'] == torneo_actual]['Equipo'].tolist() if not df_equipos.empty else []
+for t in torneos_activos:
+    etiqueta = f"{t} ✅ Activo"
+    opciones_torneo.append(etiqueta)
+    mapa_torneo[etiqueta] = (t, False)
+
+for t in torneos_archivados:
+    etiqueta = f"{t} 🗄️ Archivado"
+    opciones_torneo.append(etiqueta)
+    mapa_torneo[etiqueta] = (t, True)
+
+# Si no hay ningún torneo, evitamos que truene.
+if not opciones_torneo:
+    opciones_torneo = ["Sin Torneos"]
+    mapa_torneo["Sin Torneos"] = ("Sin Torneos", False)
+
+col_torneo, col_semana = st.columns(2)
+with col_torneo:
+    # index=0 hace que por defecto cargue el primero de la lista, que es el torneo activo.
+    etiqueta_sel = st.selectbox("Torneo", opciones_torneo, index=0, key="sel_torneo")
+
+# Traducimos la etiqueta elegida al nombre real del torneo y si es archivado o no.
+torneo_actual, es_archivado = mapa_torneo[etiqueta_sel]
+eq_activos = df_equipos[df_equipos['Torneo'] == torneo_actual]['Equipo'].tolist() if not df_equipos.empty else []
+
+# La semana solo tiene sentido en el torneo activo (donde registras resultados).
+if not es_archivado:
     sem_sug = detectar_semana(eq_activos, df_partidos, torneo_actual)
     with col_semana:
         sem_act = st.number_input("Semana", min_value=1, max_value=20, value=sem_sug, key="memoria_semana")
 else:
-    # En modo consulta de archivado calculamos valores por defecto para no romper el código,
-    # pero no dibujamos los selectores en pantalla.
-    torneo_actual = torneos_activos[0] if torneos_activos else "Sin Torneos Activos"
-    eq_activos = df_equipos[df_equipos['Torneo'] == torneo_actual]['Equipo'].tolist() if not df_equipos.empty else []
-    sem_act = 1
+    sem_act = 1  # valor por defecto, no se usa en modo consulta
 
 # --- VISTA DE CONSULTA DE ARCHIVADOS ---
-# Si elegiste un torneo archivado en la barra lateral, mostramos su resumen y nada más.
-if torneo_archivado_sel != "-- Selecciona --":
-    st.info(f"🗄️ Estás consultando el torneo archivado: **{torneo_archivado_sel}** (solo lectura)")
+# Si elegiste un torneo archivado, mostramos su calendario y tablas en modo solo lectura.
+if es_archivado:
+    st.info(f"🗄️ Estás consultando el torneo archivado: **{torneo_actual}** (solo lectura)")
 
-    eq_arch = df_equipos[df_equipos['Torneo'] == torneo_archivado_sel]['Equipo'].tolist()
-    partidos_arch = df_partidos[df_partidos['Torneo'] == torneo_archivado_sel]
+    eq_arch = eq_activos  # ya calculado arriba para este torneo
+    partidos_arch = df_partidos[df_partidos['Torneo'] == torneo_actual]
 
-    tab_a_tabla, tab_a_goleo, tab_a_transf = st.tabs(["📊 Posiciones", "⚽ Goleo", "🔄 Transferencias"])
+    tab_a_cal, tab_a_tabla, tab_a_goleo, tab_a_transf = st.tabs(["📝 Calendario", "📊 Posiciones", "⚽ Goleo", "🔄 Transferencias"])
+
+    # --- Calendario con resultados (solo lectura) ---
+    with tab_a_cal:
+        if len(eq_arch) == 6 and not partidos_arch.empty:
+            # Recorremos todas las semanas que tengan partidos registrados.
+            semanas_con_juegos = sorted(set(
+                int(str(j).split('J')[0].replace('S', ''))
+                for j in partidos_arch['Jornada']
+                if str(j).startswith('S') and 'J' in str(j)
+            ))
+            for sem in semanas_con_juegos:
+                st.markdown(f"#### 📅 Semana {sem}")
+                partidos_sem = generar_calendario(eq_arch, sem)
+                cc1, cc2 = st.columns(2)
+                for idx, p in enumerate(partidos_sem):
+                    j = partidos_arch[(partidos_arch['Jornada'] == p['Jornada']) & (partidos_arch['Local'] == p['Local'])]
+                    with (cc1 if idx < 4 else cc2):
+                        if not j.empty:
+                            gl, gv = int(j.iloc[0]['Goles_L']), int(j.iloc[0]['Goles_V'])
+                            st.markdown(f"""<div class="match-card-played"><div class="jornada-tag">✅ {p['Jornada']}</div><div class="teams-text">{p['Local']} vs {p['Visitante']}</div><div class="score-text">{gl} - {gv}</div></div>""", unsafe_allow_html=True)
+        else:
+            st.write("Sin partidos registrados en este torneo.")
 
     with tab_a_tabla:
         if not partidos_arch.empty:
@@ -203,14 +227,14 @@ if torneo_archivado_sel != "-- Selecciona --":
             st.write("Sin partidos registrados en este torneo.")
 
     with tab_a_goleo:
-        goles_arch = df_goleadores[df_goleadores['Torneo'] == torneo_archivado_sel]
+        goles_arch = df_goleadores[df_goleadores['Torneo'] == torneo_actual]
         if not goles_arch.empty:
             st.dataframe(goles_arch.groupby(['Jugador', 'Equipo'])['Goles'].sum().reset_index().sort_values(by='Goles', ascending=False), use_container_width=True, hide_index=True)
         else:
             st.write("Sin goleadores registrados.")
 
     with tab_a_transf:
-        transf_arch = df_transferencias[df_transferencias['Torneo'] == torneo_archivado_sel]
+        transf_arch = df_transferencias[df_transferencias['Torneo'] == torneo_actual]
         if not transf_arch.empty:
             st.dataframe(transf_arch[["Jornada", "Equipo", "Toma", "Cede"]], use_container_width=True, hide_index=True)
         else:
