@@ -6,6 +6,8 @@ from PIL import Image
 import json
 import time
 import io
+import unicodedata
+from difflib import SequenceMatcher
 
 st.set_page_config(page_title="FC26 Pro Tracker", page_icon="🏆", layout="wide")
 
@@ -111,6 +113,41 @@ def detectar_semana(eq_act, df_p, torneo):
             j = df_p[(df_p['Torneo'] == torneo) & (df_p['Jornada'] == p['Jornada']) & (df_p['Local'] == p['Local'])]
             if j.empty: return sem
     return 1
+
+
+# --- DETECCIÓN DE GOLEADORES PARECIDOS (para no contar el mismo dos veces) ---
+def normalizar_nombre(texto):
+    """Pasa a minúsculas, quita acentos y espacios sobrantes.
+    Así 'Mbappé', 'mbappe' y 'MBAPPÉ' se vuelven todos iguales."""
+    texto = str(texto).strip().lower()
+    texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
+    return texto
+
+
+def buscar_parecido(nombre_escrito, lista_existentes, umbral=0.82):
+    """Revisa si lo que el usuario escribió se parece mucho a un nombre ya guardado.
+    Devuelve:
+      - ('identico', nombre)  si es exactamente el mismo (ignorando acentos/mayúsculas)
+      - ('parecido', nombre)  si se parece mucho pero no es idéntico (para avisar)
+      - ('nuevo', None)       si no se parece a ninguno
+    """
+    if not nombre_escrito or not str(nombre_escrito).strip():
+        return ('nuevo', None)
+    norm_escrito = normalizar_nombre(nombre_escrito)
+    mejor_nombre = None
+    mejor_score = 0.0
+    for existente in lista_existentes:
+        score = SequenceMatcher(None, norm_escrito, normalizar_nombre(existente)).ratio()
+        if score > mejor_score:
+            mejor_score = score
+            mejor_nombre = existente
+    if mejor_nombre is None:
+        return ('nuevo', None)
+    if normalizar_nombre(mejor_nombre) == norm_escrito:
+        return ('identico', mejor_nombre)
+    if mejor_score >= umbral:
+        return ('parecido', mejor_nombre)
+    return ('nuevo', None)
 
 
 # --- SEPARACIÓN DE TORNEOS: ACTIVOS vs ARCHIVADOS ---
@@ -450,19 +487,53 @@ with tab_registro:
                 ganador_wo = st.radio("Ganador W.O.:", [loc, vis], key=f"g_wo_{st.session_state['fk']}")
                 gl, gv = (3, 0) if ganador_wo == loc else (0, 3)
 
+            # Lista de TODOS los goleadores históricos (de todos los torneos),
+            # sin repetir, para comparar lo que se escribe contra lo ya existente.
+            if not df_goleadores.empty and 'Jugador' in df_goleadores.columns:
+                goleadores_historicos = sorted(set(
+                    str(n).strip() for n in df_goleadores['Jugador'].dropna() if str(n).strip()
+                ))
+            else:
+                goleadores_historicos = []
+
+            def campo_goleador(etiqueta, key_base, indice):
+                """Dibuja un cuadro de texto para un goleador y, debajo,
+                avisa si el nombre se parece a uno ya existente."""
+                campo_key = f"{key_base}_{indice}_{st.session_state['fk']}"
+                # Si en la pasada anterior se pidió corregir este campo, lo aplicamos
+                # ANTES de dibujar el cuadro (así Streamlit sí lo permite).
+                correccion_key = f"corregir_{campo_key}"
+                if correccion_key in st.session_state:
+                    st.session_state[campo_key] = st.session_state[correccion_key]
+                    del st.session_state[correccion_key]
+
+                nombre = st.text_input(etiqueta, key=campo_key)
+                if nombre and nombre.strip():
+                    tipo, parecido_a = buscar_parecido(nombre, goleadores_historicos)
+                    if tipo == 'parecido':
+                        c_aviso, c_boton = st.columns([3, 2])
+                        with c_aviso:
+                            st.warning(f"¿Quisiste decir **{parecido_a}**? Ya existe.")
+                        with c_boton:
+                            if st.button(f"Usar '{parecido_a}'", key=f"fix_{campo_key}"):
+                                # Guardamos la corrección para aplicarla en la siguiente pasada.
+                                st.session_state[correccion_key] = parecido_a
+                                st.rerun()
+                return nombre
+
             goleadores_data = []
             if not wo:
                 c_g1, c_g2 = st.columns(2)
                 with c_g1:
                     if gl > 0:
                         for i in range(gl):
-                            j = st.text_input(f"Gol L {i+1}", key=f"jug_l_{i}_{st.session_state['fk']}")
+                            j = campo_goleador(f"Gol L {i+1}", "jug_l", i)
                             if j and j.strip(): 
                                 goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": loc, "Jugador": j.strip(), "Goles": 1})
                 with c_g2:
                     if gv > 0:
                         for i in range(gv):
-                            j = st.text_input(f"Gol V {i+1}", key=f"jug_v_{i}_{st.session_state['fk']}")
+                            j = campo_goleador(f"Gol V {i+1}", "jug_v", i)
                             if j and j.strip(): 
                                 goleadores_data.append({"Torneo": torneo_actual, "Jornada": jorn, "Equipo": vis, "Jugador": j.strip(), "Goles": 1})
 
