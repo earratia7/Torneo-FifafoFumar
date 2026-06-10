@@ -117,27 +117,53 @@ def detectar_semana(eq_act, df_p, torneo):
 
 # --- DETECCIÓN DE GOLEADORES PARECIDOS (para no contar el mismo dos veces) ---
 def normalizar_nombre(texto):
-    """Pasa a minúsculas, quita acentos y espacios sobrantes.
-    Así 'Mbappé', 'mbappe' y 'MBAPPÉ' se vuelven todos iguales."""
+    """Pasa a minúsculas, quita acentos, puntos, apóstrofes y espacios sobrantes.
+    Así 'Kaká' = 'Kaka', 'F.Totti' = 'F. Totti', y 'Eto'o' con cualquier apóstrofe son iguales."""
     texto = str(texto).strip().lower()
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
+    # Convertimos puntos en espacios y quitamos los distintos tipos de apóstrofe.
+    texto = texto.replace('.', ' ').replace("'", '').replace('’', '').replace('`', '')
+    # Colapsamos espacios múltiples en uno solo.
+    texto = ' '.join(texto.split())
     return texto
 
 
-def buscar_parecido(nombre_escrito, lista_existentes, umbral=0.82):
+def palabras_apellido(nombre_normalizado):
+    """Devuelve solo las palabras de 3+ letras (apellidos reales),
+    descartando iniciales sueltas como 'k', 's', 'jr' para que no causen falsos parecidos."""
+    return set(w for w in nombre_normalizado.split() if len(w) >= 3)
+
+
+def buscar_parecido(nombre_escrito, lista_existentes, umbral=0.85):
     """Revisa si lo que el usuario escribió se parece mucho a un nombre ya guardado.
+    Pensado para nombres tipo FC26 ('K. Benzema', 'Lamine Yamal', 'Kaká').
+    Ignora las iniciales sueltas (la 'K.' de 'K. Benzema') para no dar falsas alarmas,
+    y compara los apellidos entre sí.
     Devuelve:
-      - ('identico', nombre)  si es exactamente el mismo (ignorando acentos/mayúsculas)
+      - ('identico', nombre)  si es el mismo (ignorando acentos/puntos/mayúsculas)
       - ('parecido', nombre)  si se parece mucho pero no es idéntico (para avisar)
       - ('nuevo', None)       si no se parece a ninguno
     """
     if not nombre_escrito or not str(nombre_escrito).strip():
         return ('nuevo', None)
     norm_escrito = normalizar_nombre(nombre_escrito)
+    apellidos_escrito = palabras_apellido(norm_escrito)
     mejor_nombre = None
     mejor_score = 0.0
     for existente in lista_existentes:
-        score = SequenceMatcher(None, norm_escrito, normalizar_nombre(existente)).ratio()
+        norm_existente = normalizar_nombre(existente)
+        apellidos_existente = palabras_apellido(norm_existente)
+        # Parecido del texto completo.
+        score_total = SequenceMatcher(None, norm_escrito, norm_existente).ratio()
+        # Parecido entre apellidos (palabras largas), ignorando iniciales.
+        score_apellido = 0.0
+        for a in (apellidos_escrito or {norm_escrito}):
+            for b in (apellidos_existente or {norm_existente}):
+                score_apellido = max(score_apellido, SequenceMatcher(None, a, b).ratio())
+        score = max(score_total, score_apellido)
+        # Si comparten un apellido largo idéntico, es casi seguro el mismo jugador.
+        if apellidos_escrito & apellidos_existente:
+            score = max(score, 0.96)
         if score > mejor_score:
             mejor_score = score
             mejor_nombre = existente
