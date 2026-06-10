@@ -70,14 +70,28 @@ except:
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# --- LECTURA DE DATOS ---
+# Leemos la columna nueva "Estado" de la hoja "Equipos".
+# Usamos usecols=[0,1,2] para traer: Torneo, Equipo, Estado.
 try:
     df_partidos = conn.read(worksheet="Partidos", usecols=[0, 1, 2, 3, 4, 5, 6], ttl=60).dropna(how="all")
-    df_equipos = conn.read(worksheet="Equipos", usecols=[0, 1], ttl=60).dropna(how="all")
+    df_equipos = conn.read(worksheet="Equipos", usecols=[0, 1, 2], ttl=60).dropna(how="all")
     df_goleadores = conn.read(worksheet="Goleadores", usecols=[0, 1, 2, 3, 4], ttl=60).dropna(how="all")
     df_transferencias = conn.read(worksheet="Transferencias", usecols=[0, 1, 2, 3, 4], ttl=60).dropna(how="all")
 except:
     df_partidos = pd.DataFrame(columns=["Torneo", "Jornada", "Local", "Goles_L", "Goles_V", "Visitante", "WO"])
-    df_equipos = pd.DataFrame(columns=["Torneo", "Equipo"])
+    df_equipos = pd.DataFrame(columns=["Torneo", "Equipo", "Estado"])
+    df_goleadores = pd.DataFrame(columns=["Torneo", "Jornada", "Equipo", "Jugador", "Goles"])
+    df_transferencias = pd.DataFrame(columns=["Torneo", "Jornada", "Equipo", "Toma", "Cede"])
+
+# --- PROTECCIÓN: si la hoja todavía no tiene la columna "Estado", la creamos vacía ---
+# Esto evita que la app truene si abres antes de agregar la columna en Google Sheets.
+if "Estado" not in df_equipos.columns:
+    df_equipos["Estado"] = "Activo"
+
+# Rellenamos vacíos con un valor seguro por defecto.
+df_equipos["Estado"] = df_equipos["Estado"].fillna("Activo")
+
 
 def generar_calendario(equipos_lista, semana):
     if len(equipos_lista) < 6: return []
@@ -98,18 +112,100 @@ def detectar_semana(eq_act, df_p, torneo):
             if j.empty: return sem
     return 1
 
+
+# --- SEPARACIÓN DE TORNEOS: ACTIVOS vs ARCHIVADOS ---
+# Comparamos en minúsculas para que "Activo", "activo" o "ACTIVO" funcionen igual.
+if not df_equipos.empty:
+    estado_norm = df_equipos["Estado"].astype(str).str.strip().str.lower()
+    torneos_activos = df_equipos[estado_norm == "activo"]['Torneo'].unique().tolist()
+    torneos_archivados = df_equipos[estado_norm == "archivado"]['Torneo'].unique().tolist()
+    # Cualquier torneo sin estado reconocido lo tratamos como activo, para no esconderlo por error.
+    torneos_otros = df_equipos[~estado_norm.isin(["activo", "archivado"])]['Torneo'].unique().tolist()
+    for t in torneos_otros:
+        if t not in torneos_activos:
+            torneos_activos.append(t)
+else:
+    torneos_activos = []
+    torneos_archivados = []
+
 with st.sidebar:
     st.header("⚙️ Configuración")
-    torneo_actual = st.selectbox("Torneo Activo:", df_equipos['Torneo'].unique() if not df_equipos.empty else ["Sin Torneos"])
+
+    # --- Selector solo con torneos ACTIVOS ---
+    if torneos_activos:
+        torneo_actual = st.selectbox("Torneo Activo:", torneos_activos)
+    else:
+        torneo_actual = st.selectbox("Torneo Activo:", ["Sin Torneos Activos"])
+
     eq_activos = df_equipos[df_equipos['Torneo'] == torneo_actual]['Equipo'].tolist() if not df_equipos.empty else []
+
+    # --- Cálculo de la semana sugerida ---
+    # La app detecta sola hasta qué semana has jugado, mirando los partidos ya guardados.
     sem_sug = detectar_semana(eq_activos, df_partidos, torneo_actual)
+
     sem_act = st.number_input("Semana de Juego:", min_value=1, max_value=20, value=sem_sug, key="memoria_semana")
+
     if st.button("🔄 Forzar Actualización"):
         st.cache_data.clear()
         st.rerun()
 
+    # --- Consulta de torneos archivados ---
+    if torneos_archivados:
+        st.divider()
+        st.subheader("🗄️ Torneos Archivados")
+        st.caption("Solo para consulta. No se pueden editar.")
+        torneo_archivado_sel = st.selectbox("Ver torneo archivado:", ["-- Selecciona --"] + torneos_archivados)
+    else:
+        torneo_archivado_sel = "-- Selecciona --"
+
 st.title("🏆 Torneo FifafoFumar FC26")
 
+# --- VISTA DE CONSULTA DE ARCHIVADOS ---
+# Si elegiste un torneo archivado en la barra lateral, mostramos su resumen y nada más.
+if torneo_archivado_sel != "-- Selecciona --":
+    st.info(f"🗄️ Estás consultando el torneo archivado: **{torneo_archivado_sel}** (solo lectura)")
+
+    eq_arch = df_equipos[df_equipos['Torneo'] == torneo_archivado_sel]['Equipo'].tolist()
+    partidos_arch = df_partidos[df_partidos['Torneo'] == torneo_archivado_sel]
+
+    tab_a_tabla, tab_a_goleo, tab_a_transf = st.tabs(["📊 Posiciones", "⚽ Goleo", "🔄 Transferencias"])
+
+    with tab_a_tabla:
+        if not partidos_arch.empty:
+            stats = {eq: {'PJ': 0, 'G': 0, 'E': 0, 'P': 0, 'GF': 0, 'GC': 0, 'Pts': 0} for eq in eq_arch}
+            for _, p in partidos_arch.iterrows():
+                loc, vis, gl, gv = p['Local'], p['Visitante'], int(p['Goles_L']), int(p['Goles_V'])
+                if loc in stats and vis in stats:
+                    stats[loc]['PJ'] += 1; stats[vis]['PJ'] += 1
+                    stats[loc]['GF'] += gl; stats[loc]['GC'] += gv
+                    stats[vis]['GF'] += gv; stats[vis]['GC'] += gl
+                    if gl > gv: stats[loc]['G'] += 1; stats[loc]['Pts'] += 3; stats[vis]['P'] += 1
+                    elif gv > gl: stats[vis]['G'] += 1; stats[vis]['Pts'] += 3; stats[loc]['P'] += 1
+                    else: stats[loc]['E'] += 1; stats[vis]['E'] += 1; stats[loc]['Pts'] += 1; stats[vis]['Pts'] += 1
+            df_t = pd.DataFrame.from_dict(stats, orient='index').reset_index()
+            df_t = df_t.rename(columns={'index': 'Equipo'})
+            df_t['DG'] = df_t['GF'] - df_t['GC']
+            st.dataframe(df_t[['Equipo', 'PJ', 'G', 'E', 'P', 'GF', 'GC', 'DG', 'Pts']].sort_values(by=['Pts', 'DG'], ascending=False), use_container_width=True, hide_index=True)
+        else:
+            st.write("Sin partidos registrados en este torneo.")
+
+    with tab_a_goleo:
+        goles_arch = df_goleadores[df_goleadores['Torneo'] == torneo_archivado_sel]
+        if not goles_arch.empty:
+            st.dataframe(goles_arch.groupby(['Jugador', 'Equipo'])['Goles'].sum().reset_index().sort_values(by='Goles', ascending=False), use_container_width=True, hide_index=True)
+        else:
+            st.write("Sin goleadores registrados.")
+
+    with tab_a_transf:
+        transf_arch = df_transferencias[df_transferencias['Torneo'] == torneo_archivado_sel]
+        if not transf_arch.empty:
+            st.dataframe(transf_arch[["Jornada", "Equipo", "Toma", "Cede"]], use_container_width=True, hide_index=True)
+        else:
+            st.write("Sin transferencias registradas.")
+
+    st.stop()  # Cortamos aquí para no mostrar las pestañas de edición del torneo activo.
+
+# --- VISTA NORMAL (TORNEO ACTIVO) ---
 tab_registro, tab_tabla, tab_goleo, tab_transf, tab_config = st.tabs(["📝 Calendario", "📊 Posiciones", "⚽ Goleo", "🔄 Transferencias", "⚙️ Configuración"])
 
 with tab_config:
@@ -119,7 +215,13 @@ with tab_config:
     with col_e: nuevo_equipo = st.text_input("Emoji + Equipo + (Manager):")
     if st.button("Inscribir Jugador"):
         if nuevo_torneo and nuevo_equipo:
-            conn.update(worksheet="Equipos", data=pd.concat([df_equipos, pd.DataFrame([{"Torneo": nuevo_torneo, "Equipo": nuevo_equipo}])], ignore_index=True))
+            # Los jugadores nuevos nacen en estado "Activo".
+            nueva_fila = pd.DataFrame([{
+                "Torneo": nuevo_torneo,
+                "Equipo": nuevo_equipo,
+                "Estado": "Activo"
+            }])
+            conn.update(worksheet="Equipos", data=pd.concat([df_equipos, nueva_fila], ignore_index=True))
             st.cache_data.clear()
             st.success("✅ Registrado exitosamente.")
             st.rerun()
@@ -362,6 +464,9 @@ with tab_registro:
                         st.success("✅ ¡Guardado!")
                         time.sleep(1)
                         st.rerun()
+    else:
+        # Mensaje claro cuando el torneo no tiene exactamente 6 jugadores.
+        st.warning(f"⚠️ Este torneo tiene {len(eq_activos)} jugador(es). El calendario actual está diseñado para 6 jugadores. El soporte para 5 jugadores llegará en la siguiente actualización.")
 
 with tab_tabla:
     partidos_torneo = df_partidos[df_partidos['Torneo'] == torneo_actual]
@@ -375,7 +480,6 @@ with tab_tabla:
                 elif gv > gl: stats[vis]['G'] += 1; stats[vis]['Pts'] += 3; stats[loc]['P'] += 1
                 else: stats[loc]['E'] += 1; stats[vis]['E'] += 1; stats[loc]['Pts'] += 1; stats[vis]['Pts'] += 1
         
-        # Reformateamos la tabla de posiciones para que no muestre el índice basura
         df_t = pd.DataFrame.from_dict(stats, orient='index').reset_index()
         df_t = df_t.rename(columns={'index': 'Equipo'})
         df_t['DG'] = df_t['GF'] - df_t['GC']
@@ -384,11 +488,9 @@ with tab_tabla:
 with tab_goleo:
     goles_t = df_goleadores[df_goleadores['Torneo'] == torneo_actual]
     if not goles_t.empty:
-        # Se agrega hide_index=True
         st.dataframe(goles_t.groupby(['Jugador', 'Equipo'])['Goles'].sum().reset_index().sort_values(by='Goles', ascending=False), use_container_width=True, hide_index=True)
 
 with tab_transf:
     t_t = df_transferencias[df_transferencias['Torneo'] == torneo_actual]
     if not t_t.empty: 
-        # Se agrega hide_index=True
         st.dataframe(t_t[["Jornada", "Equipo", "Toma", "Cede"]], use_container_width=True, hide_index=True)
