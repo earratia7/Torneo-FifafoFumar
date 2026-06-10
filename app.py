@@ -152,12 +152,22 @@ with st.sidebar:
         st.caption("Solo para consulta. No se pueden editar.")
         torneo_archivado_sel = st.selectbox("Ver torneo archivado:", ["-- Selecciona --"] + torneos_archivados, key="sel_archivado")
         # Botón para salir del modo consulta y volver al torneo activo.
+        # Streamlit no permite forzar el valor del menú, así que en su lugar
+        # recordamos cuál torneo queremos "ocultar" temporalmente.
         if torneo_archivado_sel != "-- Selecciona --":
             if st.button("↩️ Volver al torneo activo", use_container_width=True):
-                st.session_state["sel_archivado"] = "-- Selecciona --"
+                st.session_state["ocultar_archivado"] = torneo_archivado_sel
                 st.rerun()
     else:
         torneo_archivado_sel = "-- Selecciona --"
+
+# Si pediste volver al activo, ocultamos ese archivado MIENTRAS siga elegido en el menú.
+# En cuanto cambies el menú a otro torneo (o a "-- Selecciona --"), la regla deja de aplicar.
+if torneo_archivado_sel == st.session_state.get("ocultar_archivado", None):
+    torneo_archivado_sel = "-- Selecciona --"
+else:
+    # Cambiaste de selección: limpiamos la regla para no estorbar.
+    st.session_state["ocultar_archivado"] = None
 
 # --- ENCABEZADO CON BOTÓN DE ACTUALIZAR EN LA ESQUINA SUPERIOR DERECHA ---
 col_titulo, col_refresh = st.columns([10, 1])
